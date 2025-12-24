@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.openarm_policy as openarm_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -355,6 +356,24 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotOpenArmDataConfig(DataConfigFactory):
+    """Config for OpenArm LeRobot datasets with only wrist cameras."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[openarm_policy.OpenArmInputs()],
+            outputs=[openarm_policy.OpenArmOutputs(action_dim=model_config.action_dim)],
+        )
+        model_transforms = ModelTransformFactory()(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class RLDSDroidDataConfig(DataConfigFactory):
     """
     Config for training on DROID, using RLDS data format (for efficient training on larger datasets).
@@ -487,9 +506,9 @@ class TrainConfig:
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
 
     # Base directory for config assets (e.g., norm stats).
-    assets_base_dir: str = "./assets"
+    assets_base_dir: str = "/work/nvme/bfbo/xzhang42/openpi/assets"
     # Base directory for checkpoints.
-    checkpoint_base_dir: str = "./checkpoints"
+    checkpoint_base_dir: str = "/work/nvme/bfbo/xzhang42/openpi/checkpoints"
 
     # Random seed that will be used by random generators during training.
     seed: int = 42
@@ -815,6 +834,45 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=20_000,
         batch_size=64,
+    ),
+    #
+    # OpenArm fine-tuning configs.
+    #
+    TrainConfig(
+        name="pi05_openarm_tea_continuous",
+        project_name="openarm_tea_continuous",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=16,
+            action_horizon=10,
+            max_token_len=220,
+        ),
+        data=LeRobotOpenArmDataConfig(
+            repo_id="openarm/tea_continuous",
+            assets=AssetsConfig(asset_id="openarm/tea_continuous"),
+            base_config=DataConfig(prompt_from_task=False),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        batch_size=32,
+    ),
+    TrainConfig(
+        name="pi05_openarm_tea_discrete",
+        project_name="openarm_tea_discrete",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=16,
+            action_horizon=10,
+            max_token_len=220,
+        ),
+        data=LeRobotOpenArmDataConfig(
+            repo_id="openarm/tea_discrete",
+            assets=AssetsConfig(asset_id="openarm/tea_discrete"),
+            base_config=DataConfig(prompt_from_task=False),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        batch_size=32,
     ),
     #
     # Fine-tuning DROID configs.
