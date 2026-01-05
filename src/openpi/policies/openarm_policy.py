@@ -51,6 +51,10 @@ class OpenArmInputs(transforms.DataTransformFn):
 
         prompt = data.get("prompt", data.get("task"))
         if prompt is not None:
+            if isinstance(prompt, (list, tuple)):
+                prompt = prompt[0]
+            if isinstance(prompt, np.ndarray):
+                prompt = prompt.item()
             if isinstance(prompt, bytes):
                 prompt = prompt.decode("utf-8")
             inputs["prompt"] = prompt
