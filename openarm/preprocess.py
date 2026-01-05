@@ -76,7 +76,7 @@ def make_features(image_shape: tuple[int, int, int], state_names: list[str], act
         },
         "prompt": {
             "dtype": "string",
-            "shape": (),
+            "shape": (1,),
             "names": None,
         },
         "state": {
