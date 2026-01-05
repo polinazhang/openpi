@@ -16,6 +16,37 @@ import openpi.training.data_loader as _data_loader
 import openpi.transforms as transforms
 
 
+def _adjust_openarm_discrete_norm_stats(repo_id: str | None, norm_stats: dict[str, normalize.NormStats]) -> bool:
+    """Override gripper stats for the discrete OpenArm dataset so quantile normalization stays well-defined."""
+
+    if repo_id is None or not repo_id.endswith("openarm/tea_discrete"):
+        return False
+
+    def _fix_stats(stats: normalize.NormStats | None):
+        if stats is None:
+            return
+        # Ensure we have numpy arrays so in-place edits work for both lists and ndarrays.
+        stats.mean = np.asarray(stats.mean)
+        stats.std = np.asarray(stats.std)
+        if stats.q01 is not None:
+            stats.q01 = np.asarray(stats.q01)
+        if stats.q99 is not None:
+            stats.q99 = np.asarray(stats.q99)
+
+        for idx in (-2, -1):
+            # Put the binary grippers on a canonical [0, 1] range for quantile normalization, and avoid zero std.
+            stats.mean[idx] = 0.5
+            stats.std[idx] = 0.5
+            if stats.q01 is not None:
+                stats.q01[idx] = 0.0
+            if stats.q99 is not None:
+                stats.q99[idx] = 1.0
+
+    _fix_stats(norm_stats.get("state"))
+    _fix_stats(norm_stats.get("actions"))
+    return True
+
+
 class RemoveStrings(transforms.DataTransformFn):
     def __call__(self, x: dict) -> dict:
         return {k: v for k, v in x.items() if not np.issubdtype(np.asarray(v).dtype, np.str_)}
@@ -119,6 +150,8 @@ def main(config_name: str, max_frames: int | None = None, repo_root: str | None 
             stats[key].update(np.asarray(batch[key]))
 
     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
+    if _adjust_openarm_discrete_norm_stats(data_config.repo_id, norm_stats):
+        print("Adjusted OpenArm discrete gripper stats to prevent degenerate quantile ranges.")
 
     output_path = config.assets_dirs / data_config.repo_id
     print(f"Writing stats to: {output_path}")
