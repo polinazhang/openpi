@@ -12,35 +12,34 @@ from tqdm import tqdm
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
+CONTINUOUS_REPO = "continuous"
+DISCRETE_REPO = "discrete"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--repo-id",
-        default="optimal-q/tea_test",
+        default="qrafty-ai/tea_use_spoon",
         help="Repo ID for the raw dataset (default: %(default)s).",
     )
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("/work/nvme/bfbo/xzhang42/datasets/openarm"),
+        default=Path("/work/nvme/bfbo/xzhang42/datasets"),
         help="Directory containing the downloaded raw dataset.",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/work/nvme/bfbo/xzhang42/datasets/openarm_processed"),
-        help="Parent directory for the processed datasets.",
+        default=None,
+        help="Parent directory for the processed datasets (default: <dataset>_processed next to the raw data).",
     )
     parser.add_argument(
-        "--continuous-repo",
-        default="openarm/tea_continuous",
-        help="Relative repo ID for the continuous-gripper dataset.",
-    )
-    parser.add_argument(
-        "--discrete-repo",
-        default="openarm/tea_discrete",
-        help="Relative repo ID for the discrete-gripper dataset.",
+        "--variant",
+        choices=("discrete", "continuous", "both"),
+        default="discrete",
+        help="Choose which processed dataset(s) to emit (default: %(default)s).",
     )
     parser.add_argument(
         "--gripper-threshold",
@@ -70,6 +69,11 @@ def make_features(image_shape: tuple[int, int, int], state_names: list[str], act
             "names": ["height", "width", "channel"],
         },
         "right_wrist_image": {
+            "dtype": "image",
+            "shape": image_shape,
+            "names": ["height", "width", "channel"],
+        },
+        "head_image": {
             "dtype": "image",
             "shape": image_shape,
             "names": ["height", "width", "channel"],
@@ -134,19 +138,20 @@ def to_numpy_array(arr, length: int | None = None) -> np.ndarray:
 
 def convert_dataset(
     raw_dataset: LeRobotDataset,
-    ds_cont: LeRobotDataset,
-    ds_disc: LeRobotDataset,
+    ds_cont: LeRobotDataset | None,
+    ds_disc: LeRobotDataset | None,
     *,
     max_episodes: int | None,
     gripper_threshold: float,
+    task_lookup: dict[int, str] | None,
 ) -> None:
     current_episode = None
     processed_episodes = 0
 
     def flush():
-        if ds_cont.episode_buffer["size"] > 0:
+        if ds_cont and ds_cont.episode_buffer["size"] > 0:
             ds_cont.save_episode()
-        if ds_disc.episode_buffer["size"] > 0:
+        if ds_disc and ds_disc.episode_buffer["size"] > 0:
             ds_disc.save_episode()
 
     iterator = tqdm(range(len(raw_dataset)), desc="Converting frames")
@@ -164,11 +169,17 @@ def convert_dataset(
 
         left_img = to_numpy_image(sample["observation.images.left_cam"])
         right_img = to_numpy_image(sample["observation.images.right_cam"])
+        head_img = to_numpy_image(sample["observation.images.head_camera"])
         state_vec = to_numpy_array(sample["observation.state"], length=16)
         action_vec = to_numpy_array(sample["action"])
-        task_value = sample["task"]
+        task_value = sample["task"] if "task" in sample else None
+        if task_value is None and task_lookup:
+            task_index = int(sample["task_index"])
+            task_value = task_lookup.get(task_index, f"task_{task_index}")
         if isinstance(task_value, bytes):
             task_value = task_value.decode("utf-8")
+        if task_value is None:
+            task_value = "unknown_task"
 
         cont_state = state_vec.copy()
         cont_action = action_vec.copy()
@@ -180,22 +191,31 @@ def convert_dataset(
         frame_common = {
             "left_wrist_image": left_img,
             "right_wrist_image": right_img,
+            "head_image": head_img,
             "task": task_value,
             "prompt": task_value,
         }
-        ds_cont.add_frame({**frame_common, "state": cont_state, "actions": cont_action})
-        ds_disc.add_frame({**frame_common, "state": disc_state, "actions": disc_action})
+        if ds_cont is not None:
+            ds_cont.add_frame({**frame_common, "state": cont_state, "actions": cont_action})
+        if ds_disc is not None:
+            ds_disc.add_frame({**frame_common, "state": disc_state, "actions": disc_action})
 
     flush()
-    ds_cont.finalize()
-    ds_disc.finalize()
+    if ds_cont is not None:
+        ds_cont.finalize()
+    if ds_disc is not None:
+        ds_disc.finalize()
 
 
 def main() -> None:
     args = parse_args()
     base_root = args.input_root.expanduser()
     dataset_root = base_root / Path(args.repo_id)
-    output_root = args.output_root.expanduser()
+    if args.output_root is None:
+        default_output = dataset_root.parent / f"{dataset_root.name}_processed"
+        output_root = default_output
+    else:
+        output_root = args.output_root.expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
 
     raw_dataset = LeRobotDataset(
@@ -210,8 +230,19 @@ def main() -> None:
     action_names = raw_dataset.meta.features["action"]["names"]
     features = make_features(image_shape, state_names, action_names)
 
-    ds_cont = prepare_output_dataset(args.continuous_repo, output_root, raw_dataset.fps, features)
-    ds_disc = prepare_output_dataset(args.discrete_repo, output_root, raw_dataset.fps, features)
+    build_cont = args.variant in ("continuous", "both")
+    build_disc = args.variant in ("discrete", "both")
+
+    ds_cont = prepare_output_dataset(CONTINUOUS_REPO, output_root, raw_dataset.fps, features) if build_cont else None
+    ds_disc = prepare_output_dataset(DISCRETE_REPO, output_root, raw_dataset.fps, features) if build_disc else None
+
+    task_lookup: dict[int, str] | None = None
+    if getattr(raw_dataset.meta, "tasks", None) is not None:
+        task_df = raw_dataset.meta.tasks.reset_index().rename(columns={"index": "task"})
+        task_lookup = {
+            int(row["task_index"]): str(row["task"])
+            for _, row in task_df.iterrows()
+        }
 
     convert_dataset(
         raw_dataset,
@@ -219,13 +250,16 @@ def main() -> None:
         ds_disc,
         max_episodes=args.max_episodes,
         gripper_threshold=args.gripper_threshold,
+        task_lookup=task_lookup,
     )
 
-    cont_dir = output_root / Path(*args.continuous_repo.split("/"))
-    disc_dir = output_root / Path(*args.discrete_repo.split("/"))
     print("Conversion complete:")
-    print(f"  Continuous dataset: {cont_dir}")
-    print(f"  Discrete dataset:   {disc_dir}")
+    if ds_cont is not None:
+        cont_dir = output_root / Path(*CONTINUOUS_REPO.split("/"))
+        print(f"  Continuous dataset: {cont_dir}")
+    if ds_disc is not None:
+        disc_dir = output_root / Path(*DISCRETE_REPO.split("/"))
+        print(f"  Discrete dataset:   {disc_dir}")
 
 
 if __name__ == "__main__":

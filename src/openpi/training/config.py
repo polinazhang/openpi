@@ -359,12 +359,22 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 class LeRobotOpenArmDataConfig(DataConfigFactory):
     """Config for OpenArm LeRobot datasets with only wrist cameras."""
 
+    dataset_action_dim: int = 16
+    gripper_dims: int = 2
+
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
             inputs=[openarm_policy.OpenArmInputs()],
-            outputs=[openarm_policy.OpenArmOutputs(action_dim=model_config.action_dim)],
+            outputs=[openarm_policy.OpenArmOutputs(action_dim=self.dataset_action_dim)],
         )
+        delta_action_dims = self.dataset_action_dim - self.gripper_dims
+        if delta_action_dims > 0:
+            delta_mask = _transforms.make_bool_mask(delta_action_dims, -self.gripper_dims)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_mask)],
+            )
         model_transforms = ModelTransformFactory()(model_config)
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
@@ -843,7 +853,7 @@ _CONFIGS = [
         project_name="openarm_tea_continuous",
         model=pi0_config.Pi0Config(
             pi05=True,
-            action_dim=16,
+            action_dim=32,
             action_horizon=10,
             max_token_len=220,
         ),
@@ -851,6 +861,7 @@ _CONFIGS = [
             repo_id="openarm/tea_continuous",
             assets=AssetsConfig(asset_id="openarm/tea_continuous"),
             base_config=DataConfig(prompt_from_task=False),
+            dataset_action_dim=16,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=20_000,
@@ -861,7 +872,7 @@ _CONFIGS = [
         project_name="openarm_tea_discrete",
         model=pi0_config.Pi0Config(
             pi05=True,
-            action_dim=16,
+            action_dim=32,
             action_horizon=10,
             max_token_len=220,
         ),
@@ -869,6 +880,7 @@ _CONFIGS = [
             repo_id="openarm/tea_discrete",
             assets=AssetsConfig(asset_id="openarm/tea_discrete"),
             base_config=DataConfig(prompt_from_task=False),
+            dataset_action_dim=16,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=20_000,
