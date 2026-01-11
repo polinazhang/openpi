@@ -886,6 +886,25 @@ _CONFIGS = [
         num_train_steps=20_000,
         batch_size=32,
     ),
+    TrainConfig(
+        name="tea_use_spoon",
+        project_name="tea_use_spoon",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=10,
+            max_token_len=220,
+        ),
+        data=LeRobotOpenArmDataConfig(
+            repo_id="qrafty-ai/tea_use_spoon_openpi",
+            assets=AssetsConfig(asset_id="qrafty-ai/tea_use_spoon_openpi"),
+            base_config=DataConfig(prompt_from_task=False),
+            dataset_action_dim=16,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        batch_size=32,
+    ),
     #
     # Fine-tuning DROID configs.
     #

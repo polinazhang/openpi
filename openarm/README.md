@@ -3,34 +3,41 @@
 This directory contains helper scripts plus the training configs needed to fine‑tune Pi models on the OpenArm dataset.
 
 ### Downloading datasets
-Default directory: `/work/nvme/bfbo/xzhang42/datasets/<repo-id>` 
+Default saving directory: `/work/nvme/bfbo/xzhang42/datasets/<repo-id>` 
 
-```bash
 python openarm/download_hf_dataset.py qrafty-ai/tea_use_spoon
+
+### Config
+Add a new config in `src/openpi/training/config.py` for the new dataset.
+
+```
+TrainConfig(
+    name="tea_use_spoon",
+    project_name="tea_use_spoon",
+    model=pi0_config.Pi0Config(
+        pi05=True,
+        action_dim=32,
+        action_horizon=10,
+        max_token_len=220,
+    ),
+    data=LeRobotOpenArmDataConfig(
+        repo_id="qrafty-ai/tea_use_spoon_openpi",
+        assets=AssetsConfig(asset_id="qrafty-ai/tea_use_spoon_openpi"),
+        base_config=DataConfig(prompt_from_task=False),
+        dataset_action_dim=16,
+    ),
+    weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+    num_train_steps=20_000,
+    batch_size=32,
+),
 ```
 
-## Preprocess into Pi-ready datasets
-```bash
-python openarm/preprocess.py \
-  --repo-id qrafty-ai/tea_use_spoon \
-  --input-root /work/nvme/bfbo/xzhang42/datasets \
-  --output-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_processed
-```
-Automatically creates `<repo-id>_processed` next to the raw dataset (e.g., `/work/nvme/.../qrafty-ai/tea_use_spoon_processed`).
-Use `--skip-videos` for debugging.
-By default only the discrete dataset is produced; pass `--variant both` (as in the sbatch script) if you also need the continuous version.
+### Downloading norm stats
+python scripts/compute_norm_stats.py \
+  --config-name tea_use_spoon \
+  --repo-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi
 
-The converter mirrors the LeRobot `task` string into a `prompt` field so the Hub task-metadata lookup can be skipped.
-
-## Compute normalization stats 
-The OpenArm assets live under `./assets/<config>/<asset_id>`:
-  ```bash
-  python scripts/compute_norm_stats.py --config-name pi05_openarm_tea_continuous
-  python scripts/compute_norm_stats.py --config-name pi05_openarm_tea_discrete
-  ```
-
-## Fine-tuning
-```bash
-python -m openpi.training.main --config-name pi05_openarm_tea_continuous --exp-name <run-name>
-```
-The processed datasets to be available under the same repo IDs (push them to the Hub or override `repo_id` when invoking Tyro if you keep them local).
+### Training
+python scripts/train.py \
+  --config-name tea_use_spoon \
+  --exp-name spoon_run0 \
