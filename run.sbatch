@@ -45,12 +45,21 @@ PY
 # --config-name pi05_openarm_tea_discrete \
 # --repo-root /work/nvme/bfbo/xzhang42/datasets/openarm_processed/openarm/tea_discrete
 
+python scripts/compute_norm_stats.py \
+  --config-name tea_use_spoon_openpi \
+  --repo-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi
+
 # python scripts/train.py \
 # pi05_openarm_tea_continuous \
 # --data.repo_id /work/nvme/bfbo/xzhang42/datasets/openarm_processed/openarm/tea_continuous \
 # --exp-name test
 
+# python scripts/train.py \
+# pi05_openarm_tea_discrete \
+# --data.repo_id /work/nvme/bfbo/xzhang42/datasets/openarm_processed/openarm/tea_discrete \
+# --exp-name run0
+
 python scripts/train.py \
-pi05_openarm_tea_discrete \
---data.repo_id /work/nvme/bfbo/xzhang42/datasets/openarm_processed/openarm/tea_discrete \
---exp-name run0
+tea_use_spoon_openpi \
+--data.repo_id /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi \
+--exp-name run0 \
