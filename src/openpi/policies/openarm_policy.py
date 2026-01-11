@@ -27,9 +27,12 @@ class OpenArmInputs(transforms.DataTransformFn):
         left = _parse_image(data["left_wrist_image"])
         right = _parse_image(data["right_wrist_image"])
 
-        # Pi models always expect the base/left/right keys. No base camera exists in OpenArm,
-        # so we provide a masked placeholder tensor.
-        base = np.zeros_like(left)
+        if "head_image" in data:
+            base = _parse_image(data["head_image"])
+            base_mask = np.True_
+        else:
+            base = np.zeros_like(left)
+            base_mask = np.False_
 
         state = np.asarray(data["state"], dtype=np.float32)
         inputs = {
@@ -40,7 +43,7 @@ class OpenArmInputs(transforms.DataTransformFn):
                 "right_wrist_0_rgb": right,
             },
             "image_mask": {
-                "base_0_rgb": np.False_,
+                "base_0_rgb": base_mask,
                 "left_wrist_0_rgb": np.True_,
                 "right_wrist_0_rgb": np.True_,
             },

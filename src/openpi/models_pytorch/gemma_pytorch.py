@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Callable, Literal
 
 import pytest
 import torch
@@ -59,6 +59,9 @@ class PaliGemmaWithExpertModel(nn.Module):
         self.gemma_expert.model.embed_tokens = None
 
         self.to_bfloat16_for_selected_params(precision)
+        self._action_expert_hook: Callable[[int, torch.Tensor, torch.Tensor | None], None] | None = None
+        self._layer_hooks: list[torch.utils.hooks.RemovableHandle] = []
+        self._action_expert_cond: torch.Tensor | None = None
 
     def to_bfloat16_for_selected_params(self, precision: Literal["bfloat16", "float32"] = "bfloat16"):
         if precision == "bfloat16":
@@ -88,6 +91,35 @@ class PaliGemmaWithExpertModel(nn.Module):
     def embed_language_tokens(self, tokens: torch.Tensor):
         return self.paligemma.language_model.embed_tokens(tokens)
 
+    def register_action_expert_hook(
+        self, hook: Callable[[int, torch.Tensor, torch.Tensor | None], None] | None
+    ) -> None:
+        self._action_expert_hook = hook
+        for handle in self._layer_hooks:
+            handle.remove()
+        self._layer_hooks = []
+
+        if hook is None:
+            return
+
+        def make_layer_hook(layer_idx: int):
+            def _layer_hook(module, inputs, output):
+                if self._action_expert_hook is not None:
+                    tensor = output
+                    if isinstance(tensor, tuple):
+                        tensor = tensor[0]
+                    elif hasattr(tensor, "last_hidden_state"):
+                        tensor = tensor.last_hidden_state
+                    if isinstance(tensor, torch.Tensor):
+                        self._action_expert_hook(layer_idx, tensor, self._action_expert_cond)
+
+            return _layer_hook
+
+        self._layer_hooks = [
+            layer.register_forward_hook(make_layer_hook(layer_idx))
+            for layer_idx, layer in enumerate(self.gemma_expert.model.layers)
+        ]
+
     def forward(
         self,
         attention_mask: torch.Tensor | None = None,
@@ -112,6 +144,7 @@ class PaliGemmaWithExpertModel(nn.Module):
             prefix_output = prefix_output.last_hidden_state
             suffix_output = None
         elif inputs_embeds[0] is None:
+            self._action_expert_cond = adarms_cond[1] if adarms_cond is not None else None
             suffix_output = self.gemma_expert.model.forward(
                 inputs_embeds=inputs_embeds[1],
                 attention_mask=attention_mask,
@@ -123,9 +156,11 @@ class PaliGemmaWithExpertModel(nn.Module):
             suffix_output = suffix_output.last_hidden_state
             prefix_output = None
             prefix_past_key_values = None
+            self._action_expert_cond = None
         else:
             models = [self.paligemma.language_model, self.gemma_expert.model]
             num_layers = self.paligemma.config.text_config.num_hidden_layers
+            self._action_expert_cond = adarms_cond[1] if adarms_cond is not None else None
 
             # Check if gradient checkpointing is enabled for any of the models
             use_gradient_checkpointing = (
@@ -277,5 +312,6 @@ class PaliGemmaWithExpertModel(nn.Module):
             prefix_output = outputs_embeds[0]
             suffix_output = outputs_embeds[1]
             prefix_past_key_values = None
+            self._action_expert_cond = None
 
         return [prefix_output, suffix_output], prefix_past_key_values

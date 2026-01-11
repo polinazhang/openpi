@@ -113,6 +113,7 @@ class PI0Pytorch(nn.Module):
 
         # Initialize gradient checkpointing flag
         self.gradient_checkpointing_enabled = False
+        self._activation_recorder = None
 
         msg = "transformers_replace is not installed correctly. Please install it with `uv pip install transformers==4.53.2` and `cp -r ./src/openpi/models_pytorch/transformers_replace/* .venv/lib/python3.11/site-packages/transformers/`."
         try:
@@ -379,6 +380,7 @@ class PI0Pytorch(nn.Module):
         if noise is None:
             actions_shape = (bsize, self.config.action_horizon, self.config.action_dim)
             noise = self.sample_noise(actions_shape, device)
+        self._record_activation("extra:diffusion_noise", -1, noise)
 
         images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=False)
 
@@ -416,6 +418,7 @@ class PI0Pytorch(nn.Module):
             # Euler step - use new tensor assignment instead of in-place operation
             x_t = x_t + dt * v_t
             time += dt
+        self._record_activation("extra:predicted_action_chunk", -1, x_t)
         return x_t
 
     def denoise_step(
@@ -459,3 +462,27 @@ class PI0Pytorch(nn.Module):
         suffix_out = suffix_out[:, -self.config.action_horizon :]
         suffix_out = suffix_out.to(dtype=torch.float32)
         return self.action_out_proj(suffix_out)
+
+    def register_activation_recorder(self, callback):
+        self._activation_recorder = callback
+
+        def action_hook(layer_idx, tensor, cond):
+            if self._activation_recorder is None or tensor is None:
+                return
+            chunk = tensor[:, -self.config.action_horizon :, :]
+            normed, _ = self.paligemma_with_expert.gemma_expert.model.norm(chunk, cond=cond)
+            vt_layer = self.action_out_proj(normed.to(dtype=torch.float32))
+            self._record_activation("action_expert_vt", layer_idx, vt_layer)
+
+        if callback is None:
+            self.paligemma_with_expert.register_action_expert_hook(None)
+        else:
+            self.paligemma_with_expert.register_action_expert_hook(action_hook)
+
+    def _record_activation(self, branch, layer_idx, tensor):
+        if self._activation_recorder is None or tensor is None:
+            return
+        try:
+            self._activation_recorder(branch, layer_idx, tensor)
+        except Exception:
+            pass

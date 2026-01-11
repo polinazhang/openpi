@@ -17,6 +17,8 @@ def create_trained_policy(
     train_config: _config.TrainConfig,
     checkpoint_dir: pathlib.Path | str,
     *,
+    evaluation_suite_name: str,
+    data_dir: str,
     repack_transforms: transforms.Group | None = None,
     sample_kwargs: dict[str, Any] | None = None,
     default_prompt: str | None = None,
@@ -28,6 +30,8 @@ def create_trained_policy(
     Args:
         train_config: The training config to use to create the model.
         checkpoint_dir: The directory to load the model from.
+        evaluation_suite_name: Name of the evaluation campaign. Used to organize metadata outputs.
+        data_dir: Root directory where inference metadata will be written.
         repack_transforms: Optional transforms that will be applied before any other transforms.
         sample_kwargs: The kwargs to pass to the `sample_actions` method. If not provided, the default
             kwargs will be used.
@@ -74,6 +78,8 @@ def create_trained_policy(
 
     return _policy.Policy(
         model,
+        evaluation_suite_name=evaluation_suite_name,
+        data_dir=data_dir,
         transforms=[
             *repack_transforms.inputs,
             transforms.InjectDefaultPrompt(default_prompt),
