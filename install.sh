@@ -11,12 +11,14 @@
 #SBATCH --account=bfbo-dtai-gh
 
 set -euo pipefail
+shopt -s nullglob
 
 source ~/.bashrc
 
 module load cuda/12.4
 module load gcc/11.4.0
 
+export XDG_CACHE_HOME=/work/nvme/bfbo/xzhang42/.cache
 source /work/nvme/bfbo/xzhang42/openpi/.venv/bin/activate
 
 export HERMETIC_CUDA_VERSION=12.4.0
@@ -55,17 +57,37 @@ python build/build.py build \
   --jaxlib_git_hash=$(git rev-parse HEAD)
 
 
-python -m pip install --no-deps /work/nvme/bfbo/xzhang42/jax/dist/jaxlib-*.whl
-python -m pip install --no-deps /work/nvme/bfbo/xzhang42/jax/dist/jax_cuda_plugin-*.whl
-python -m pip install --no-deps /work/nvme/bfbo/xzhang42/jax/dist/jax_cuda_pjrt-*.whl
+install_latest_wheel() {
+  local pattern=$1
+  local matches=(/work/nvme/bfbo/xzhang42/jax/dist/$pattern)
+  if [[ ${#matches[@]} -eq 0 ]]; then
+    echo "No wheel found matching $pattern." >&2
+    exit 1
+  fi
+  local latest
+  latest=$(printf '%s\n' "${matches[@]}" | sort | tail -n 1)
+  python -m pip install --no-deps --force-reinstall "$latest"
+}
+
+install_latest_wheel "jaxlib-*.whl"
+install_latest_wheel "jax_cuda12_plugin-*.whl"
+install_latest_wheel "jax_cuda12_pjrt-*.whl"
+install_latest_wheel "jax_cuda12_4_pjrt-*.whl"
 
 # completely remove 12.3 SDK paths
 export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -v '/opt/nvidia/hpc_sdk/Linux_aarch64/24.3' | paste -sd:)
 # then prepend 12.4
-export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
+if [[ -n "${CUDA_HOME:-}" ]]; then
+  export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+  if [[ -d "$CUDA_HOME/extras/CUPTI/lib64" ]]; then
+    export LD_LIBRARY_PATH=$CUDA_HOME/extras/CUPTI/lib64:$LD_LIBRARY_PATH
+  fi
+else
+  export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
+fi
 export XLA_PYTHON_CLIENT_ALLOCATOR=platform
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
-export XLA_FLAGS="--xla_gpu_enable_triton_gemm=false --xla_gpu_autotune_level=0"
+export XLA_FLAGS="--xla_gpu_enable_triton_gemm=false --xla_gpu_enable_cublaslt=false --xla_gpu_autotune_level=0"
 
 
 python - <<'PY'

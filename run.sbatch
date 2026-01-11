@@ -3,7 +3,7 @@
 #SBATCH --output=results/run-%J.out
 #SBATCH --error=results/run-%J.err
 #SBATCH --cpus-per-task=16
-#SBATCH --time=5:00:00
+#SBATCH --time=8:00:00
 #SBATCH --account=bfbo-dtai-gh
 #SBATCH --partition=ghx4
 #SBATCH --gres=gpu:h100:1
@@ -13,13 +13,14 @@
 # module load cuda/12.6.1
 source ~/.bashrc
 cd /work/nvme/bfbo/xzhang42/openpi
-source .venv/bin/activate
+source /work/nvme/bfbo/xzhang42/openpi/.venv/bin/activate
 # export CUDA_VISIBLE_DEVICES=0
+export XDG_CACHE_HOME=/work/nvme/bfbo/xzhang42/.cache
 export OPENPI_DATA_HOME=/work/nvme/bfbo/xzhang42/openpi/.cache
 
-# completely remove 12.3 SDK paths
+# EXTREMELY IMPORTANT: completely remove 12.3 SDK paths
 export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -v '/opt/nvidia/hpc_sdk/Linux_aarch64/24.3' | paste -sd:)
-# then prepend 12.4
+
 export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
 export XLA_PYTHON_CLIENT_ALLOCATOR=platform
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
@@ -52,4 +53,4 @@ PY
 python scripts/train.py \
 pi05_openarm_tea_discrete \
 --data.repo_id /work/nvme/bfbo/xzhang42/datasets/openarm_processed/openarm/tea_discrete \
---exp-name test-real
+--exp-name run0
