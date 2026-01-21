@@ -34,6 +34,42 @@ def _load_metadata(path: Path) -> List[Dict]:
     return payload
 
 
+def _synthesize_metadata(source_dir: Path) -> List[Dict]:
+    trajectories: List[Dict] = []
+
+    def _sort_key(entry: Path) -> Tuple[int, str]:
+        name = entry.name
+        if name.isdigit():
+            return (0, f"{int(name):08d}")
+        return (1, name)
+
+    for traj_dir in sorted(
+        (child for child in source_dir.iterdir() if child.is_dir()),
+        key=_sort_key,
+    ):
+        artifacts: Dict[str, str] = {}
+        for artifact_path in sorted(traj_dir.glob("*.npy")):
+            artifacts[artifact_path.stem] = f"{traj_dir.name}/{artifact_path.name}"
+
+        if not artifacts:
+            continue
+
+        trajectories.append(
+            {
+                "trajectory_rel_dir": traj_dir.name,
+                "trajectory_id": traj_dir.name,
+                "artifacts": artifacts,
+            }
+        )
+
+    if not trajectories:
+        raise RuntimeError(
+            f"Unable to synthesize metadata: no per-trajectory .npy files found under {source_dir}"
+        )
+
+    return trajectories
+
+
 def _sanitize_filename(value: str) -> str:
     return value.replace("/", "__")
 
@@ -132,13 +168,17 @@ def _write_dataset(dest: Path, info: Dict, entries: List[Dict]) -> None:
 def convert_dataset(source_dir: Path, target_dir: Path, workers: int = 0) -> None:
     source_dir = source_dir.resolve()
     target_dir = target_dir.resolve()
+    if not source_dir.exists():
+        raise FileNotFoundError(f"Source directory does not exist: {source_dir}")
     dataset_name = source_dir.name
     metadata_path = source_dir / "metadata.json"
-    if not metadata_path.exists():
-        raise FileNotFoundError(f"No metadata.json found under {source_dir}")
-    metadata_items = _load_metadata(metadata_path)
+    if metadata_path.exists():
+        metadata_items = _load_metadata(metadata_path)
+    else:
+        print(f"No metadata.json found under {source_dir}, synthesizing from directory structure.")
+        metadata_items = _synthesize_metadata(source_dir)
     if not metadata_items:
-        raise RuntimeError("metadata.json contained no trajectories.")
+        raise RuntimeError("No trajectories discovered in metadata.")
 
     if target_dir.exists():
         shutil.rmtree(target_dir)
