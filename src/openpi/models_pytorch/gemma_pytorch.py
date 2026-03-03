@@ -1,4 +1,4 @@
-from typing import Callable, Literal
+from typing import Callable, Literal, Optional
 
 import pytest
 import torch
@@ -128,9 +128,11 @@ class PaliGemmaWithExpertModel(nn.Module):
         inputs_embeds: list[torch.FloatTensor] | None = None,
         use_cache: bool | None = None,
         adarms_cond: list[torch.Tensor] | None = None,
+        output_hidden_states: Optional[bool] = None,
     ):
         if adarms_cond is None:
             adarms_cond = [None, None]
+        suffix_hidden_states = None
         if inputs_embeds[1] is None:
             prefix_output = self.paligemma.language_model.forward(
                 inputs_embeds=inputs_embeds[0],
@@ -139,6 +141,7 @@ class PaliGemmaWithExpertModel(nn.Module):
                 past_key_values=past_key_values,
                 use_cache=use_cache,
                 adarms_cond=adarms_cond[0] if adarms_cond is not None else None,
+                output_hidden_states=output_hidden_states,
             )
             prefix_past_key_values = prefix_output.past_key_values
             prefix_output = prefix_output.last_hidden_state
@@ -152,7 +155,9 @@ class PaliGemmaWithExpertModel(nn.Module):
                 past_key_values=past_key_values,
                 use_cache=use_cache,
                 adarms_cond=adarms_cond[1] if adarms_cond is not None else None,
+                output_hidden_states=output_hidden_states,
             )
+            suffix_hidden_states = getattr(suffix_output, "hidden_states", None)
             suffix_output = suffix_output.last_hidden_state
             prefix_output = None
             prefix_past_key_values = None
@@ -314,4 +319,4 @@ class PaliGemmaWithExpertModel(nn.Module):
             prefix_past_key_values = None
             self._action_expert_cond = None
 
-        return [prefix_output, suffix_output], prefix_past_key_values
+        return [prefix_output, suffix_output], prefix_past_key_values, suffix_hidden_states

@@ -348,7 +348,7 @@ class PI0Pytorch(nn.Module):
 
         # Apply gradient checkpointing if enabled
         def forward_func(prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
-            (_, suffix_out), _ = self.paligemma_with_expert.forward(
+            (_, suffix_out), _, _ = self.paligemma_with_expert.forward(
                 attention_mask=att_2d_masks_4d,
                 position_ids=position_ids,
                 past_key_values=None,
@@ -392,7 +392,7 @@ class PI0Pytorch(nn.Module):
         prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
         self.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"  # noqa: SLF001
 
-        _, past_key_values = self.paligemma_with_expert.forward(
+        _, past_key_values, _ = self.paligemma_with_expert.forward(
             attention_mask=prefix_att_2d_masks_4d,
             position_ids=prefix_position_ids,
             past_key_values=None,
@@ -428,6 +428,8 @@ class PI0Pytorch(nn.Module):
         past_key_values,
         x_t,
         timestep,
+        *,
+        output_hidden_states: bool = False,
     ):
         """Apply one denoising step of the noise `x_t` at a given timestep."""
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, timestep)
@@ -449,19 +451,23 @@ class PI0Pytorch(nn.Module):
         full_att_2d_masks_4d = self._prepare_attention_masks_4d(full_att_2d_masks)
         self.paligemma_with_expert.gemma_expert.model.config._attn_implementation = "eager"  # noqa: SLF001
 
-        outputs_embeds, _ = self.paligemma_with_expert.forward(
+        outputs_embeds, _, suffix_hidden_states = self.paligemma_with_expert.forward(
             attention_mask=full_att_2d_masks_4d,
             position_ids=position_ids,
             past_key_values=past_key_values,
             inputs_embeds=[None, suffix_embs],
             use_cache=False,
             adarms_cond=[None, adarms_cond],
+            output_hidden_states=output_hidden_states,
         )
 
         suffix_out = outputs_embeds[1]
         suffix_out = suffix_out[:, -self.config.action_horizon :]
         suffix_out = suffix_out.to(dtype=torch.float32)
-        return self.action_out_proj(suffix_out)
+        v_t = self.action_out_proj(suffix_out)
+        if output_hidden_states:
+            return v_t, suffix_hidden_states, adarms_cond
+        return v_t
 
     def register_activation_recorder(self, callback):
         self._activation_recorder = callback
@@ -486,3 +492,68 @@ class PI0Pytorch(nn.Module):
             self._activation_recorder(branch, layer_idx, tensor)
         except Exception:
             pass
+
+    @torch.no_grad()
+    def compute_static_targets(self, observation, actions, *, noise=None, time=None):
+        """Run a teacher-forced pass that returns vt tensors for every layer.
+
+        This is used by the static evaluation script and is intentionally isolated
+        from the regular inference/training code paths.
+        """
+        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(
+            observation, train=False
+        )
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        if time is None:
+            time = self.sample_time(actions.shape[0], device)
+        time_expanded = time[:, None, None]
+        x_t = time_expanded * noise + (1 - time_expanded) * actions
+        u_t = noise - actions
+
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
+            images, img_masks, lang_tokens, lang_masks
+        )
+        prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+        prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+        prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
+        self.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"  # noqa: SLF001
+
+        _, past_key_values, _ = self.paligemma_with_expert.forward(
+            attention_mask=prefix_att_2d_masks_4d,
+            position_ids=prefix_position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, None],
+            use_cache=True,
+        )
+
+        self._record_activation("extra:diffusion_noise", -1, noise)
+
+        expanded_time = time.expand(state.shape[0])
+        final_vt, suffix_hidden_states, adarms_cond = self.denoise_step(
+            state,
+            prefix_pad_masks,
+            past_key_values,
+            x_t,
+            expanded_time,
+            output_hidden_states=True,
+        )
+
+        if suffix_hidden_states is None:
+            raise RuntimeError("Action expert hidden states were not returned; cannot compute vt layers.")
+
+        vt_layers: dict[int, torch.Tensor] = {}
+        # Hidden states tuple includes the embedding output at index 0.
+        for layer_idx, hidden in enumerate(suffix_hidden_states[1:]):
+            chunk = hidden[:, -self.config.action_horizon :, :]
+            normed, _ = self.paligemma_with_expert.gemma_expert.model.norm(chunk, cond=adarms_cond)
+            vt_layer = self.action_out_proj(normed.to(dtype=torch.float32))
+            vt_layers[layer_idx] = vt_layer
+
+        return {
+            "vt_layers": dict(sorted(vt_layers.items())),
+            "target": u_t,
+            "final_prediction": final_vt,
+        }
