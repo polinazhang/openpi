@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -41,6 +42,21 @@ DATASETS: dict[str, dict[str, str]] = {
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_steel_spoon",
         "config": "pi05_tea_use_steel_spoon",
     },
+    "franka_object": {
+        "repo": "franka_object",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object",
+        "config": "pi05_franka_object",
+    },
+    "franka_object_two": {
+        "repo": "franka_object_two",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_two",
+        "config": "pi05_franka_object",
+    },
+    "franka_on_top": {
+        "repo": "franka_on_top",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_on_top",
+        "config": "pi05_franka_object",
+    },
 }
 
 DEFAULT_OUTPUT_ROOT = Path("/work/nvme/bfbo/xzhang42/static")
@@ -69,6 +85,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory where metadata and artifacts will be written.",
     )
     parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=Path(BASE_CHECKPOINT_URI),
+        help="Checkpoint directory containing model.safetensors.",
+    )
+    parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Torch device to run on (default: auto-detect).",
@@ -86,6 +108,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Maximum processed steps to pack into a single trajectory artifact. "
             "Use 0 to disable chunking (falls back to per-episode flush)."
+        ),
+    )
+    parser.add_argument(
+        "--data.default_prompt",
+        dest="data_default_prompt",
+        default=None,
+        help=(
+            "Optional prompt override (train.py-style flag). "
+            "When set, replaces sample task/prompt strings before tokenization."
         ),
     )
     return parser.parse_args()
@@ -246,8 +277,15 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_config = _config.get_config(dataset_cfg["config"])
+    if args.data_default_prompt is not None:
+        if not hasattr(train_config.data, "default_prompt"):
+            raise ValueError(f"Config {train_config.name} does not support default_prompt override")
+        train_config = dataclasses.replace(
+            train_config,
+            data=dataclasses.replace(train_config.data, default_prompt=args.data_default_prompt),
+        )
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
-    checkpoint_path = Path(download.maybe_download(BASE_CHECKPOINT_URI))
+    checkpoint_path = Path(download.maybe_download(str(args.checkpoint_dir)))
     model = load_model(train_config, checkpoint_path, args.device)
 
     dataset = _data_loader.create_torch_dataset(
@@ -276,6 +314,11 @@ def main() -> None:
 
     for global_idx in tqdm(iterator, desc="Processing frames"):
         sample = dataset[global_idx]
+        if args.data_default_prompt is not None:
+            sample = dict(sample)
+            # Keep this override generic across dataset schemas.
+            sample["task"] = np.asarray(args.data_default_prompt)
+            sample["prompt"] = np.asarray(args.data_default_prompt)
         episode_idx = int(sample["episode_index"].item())
 
         if current_episode is None or episode_idx != current_episode:
