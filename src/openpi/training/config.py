@@ -956,23 +956,16 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_franka_object",
         project_name="pi05_franka_object",
-        name="pi05_franka_object",
-        project_name="pi05_franka_object",
         model=pi0_config.Pi0Config(
             pi05=True,
             action_dim=32,
-            action_horizon=50,
             action_horizon=50,
             max_token_len=220,
         ),
         data=LeRobotFrankaDataConfig(
             repo_id="franka_object",
             assets=AssetsConfig(asset_id="franka_object"),
-        data=LeRobotFrankaDataConfig(
-            repo_id="franka_object",
-            assets=AssetsConfig(asset_id="franka_object"),
             base_config=DataConfig(prompt_from_task=False),
-            dataset_action_dim=8,
             dataset_action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
@@ -983,25 +976,14 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_franka_object_lora",
         project_name="pi05_franka_object",
-        name="pi05_franka_object_lora",
-        project_name="pi05_franka_object",
         model=pi0_config.Pi0Config(
             pi05=True,
             action_dim=32,
             action_horizon=50,
-            action_horizon=50,
             max_token_len=220,
             paligemma_variant="gemma_2b_lora",
             action_expert_variant="gemma_300m_lora",
-            paligemma_variant="gemma_2b_lora",
-            action_expert_variant="gemma_300m_lora",
         ),
-        data=LeRobotFrankaDataConfig(
-            repo_id="franka_object",
-            assets=AssetsConfig(
-                assets_dir="/coc/testnvme/xzhang3205/openpi/assets/pi05_franka_object",
-                asset_id="franka_object",
-            ),
         data=LeRobotFrankaDataConfig(
             repo_id="franka_object",
             assets=AssetsConfig(
@@ -1010,14 +992,8 @@ _CONFIGS = [
             ),
             base_config=DataConfig(prompt_from_task=False),
             dataset_action_dim=8,
-            dataset_action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        freeze_filter=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b_lora",
-            action_expert_variant="gemma_300m_lora",
-        ).get_freeze_filter(),
-        ema_decay=None,
         freeze_filter=pi0_config.Pi0Config(
             paligemma_variant="gemma_2b_lora",
             action_expert_variant="gemma_300m_lora",
