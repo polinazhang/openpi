@@ -901,6 +901,24 @@ _CONFIGS = [
     # Franka fine-tuning configs
     #
     TrainConfig(
+        name="pi0_franka_object",
+        project_name="pi0_franka_object",
+        model=pi0_config.Pi0Config(
+            action_dim=32,
+            action_horizon=50,
+            max_token_len=220,
+        ),
+        data=LeRobotFrankaDataConfig(
+            repo_id="franka_object",
+            assets=AssetsConfig(asset_id="franka_object"),
+            base_config=DataConfig(prompt_from_task=False),
+            dataset_action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=20_000,
+        batch_size=32,
+    ),
+    TrainConfig(
         name="pi05_franka_object",
         project_name="pi05_franka_object",
         model=pi0_config.Pi0Config(
