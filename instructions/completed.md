@@ -1,0 +1,11 @@
+I want to evaluate pi0 and pi05 checkpoints with the openpi framework. They have code examples for aloha for real robot inference code. I am using a franka robot. I want you to create a robot inference stack inside openpi following their convention that runs pi0 and pi05 on the franka (default to the base checkpoint as what was done in the openpi repo for training, look at the code to find the hf path, unless a checkpoint dir is provided)
+
+However, previously, the inference-execution stack of the franka robot is writting in `lerobot` (not existing on this computer, don't look for it now). That one is guaranteed to be correct in terms of robot communication, but can't accomodate pi checkpoints. The script is at `lerobot/src/lerobot/robots/franka/franka.py` which may have some dependencies within the lerobot folder that you should also look at. Also look for the exact Franka model + control interface within that repo if you need the information.
+
+Also, I added some customization in the openpi repo so that it behaves slightly differently from the official openpi documentations. Read `custom_openpi.md` and make sure to follow the example when you write the franka inference. That should be the only difference to expect in behavior.
+
+Complete the following milestones. You must wait for explicit instruction from the user to verify a milestone is completed before going to the next.
+- Investigate the openpi repo and understand how the real robot is integrated. Think of ways to minimally adapt existing structure while using a new robot. Also look into potentially existing documentations about how to integrate a new robot.
+- Investigate the lerobot repo and the `lerobot/src/lerobot/robots/franka/franka.py` script to understand how inference on my specific franka robot is done.
+- Follow openpi's convention, draft scripts that minimally alter the original architecture while accomodating inference on my franka robot based on the information you discover in lerobot. Note that the script to run should run as it is. If there're arguments to set e.g. checkpoint path, put them in a config.py for the user to modify instead of adding python arguments.
+- Write a md file explaining what files are added, what they're for, and what they're doing. Write another md file explaining how to do franka inference and how to set up the environment.
