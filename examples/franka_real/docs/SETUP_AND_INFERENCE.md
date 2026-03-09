@@ -1,88 +1,78 @@
-# Franka Inference: Setup and Run Guide
+# Franka Inference: Quick Run Guide
 
-This guide explains how to run OpenPI inference on Franka using the files in `examples/franka_real`.
+This is the updated split-environment flow:
 
-## 1) Prerequisites
+- OpenPI inference server runs in the OpenPI uv env.
+- Robot communicator runs in the OpenTeach env (`/home/jeremiah/miniforge3/envs/openteach/bin/python`).
 
-You need two Python environments/machines (can be the same machine if resources allow):
-
-- Policy server environment (GPU recommended)
-  - OpenPI installed
-- Robot control environment (connected to Franka + cameras)
-  - OpenPI client runtime + OpenTeach dependencies available
-
-You also need:
-
-- OpenTeach network/camera stack running and reachable.
-- Franka camera ZMQ streams reachable at configured host/ports.
-- Franka operator connection working (`robot_interface.last_q` should become non-`None`).
-
-## 2) Install OpenPI (customized repo behavior)
-
-From `openpi/`:
-
-```bash
-pip install -e . --no-deps
-```
-
-This follows your custom instruction file (`custom_openpi.md`).
-
-## 3) Configure settings
+## 1) Configure paths (required)
 
 Edit:
 
 - `examples/franka_real/config.py`
 
-### Server settings (`POLICY_SERVER`)
+Main user-editable variables:
 
-- `evaluation_suite_name`: required metadata suite name.
-- `data_dir`: required metadata root directory.
-- `model_family`: choose `ModelFamily.PI0` or `ModelFamily.PI05`.
-- `checkpoint_dir`: optional custom checkpoint path. If `None`, defaults are:
-  - PI0: `gs://openpi-assets/checkpoints/pi0_base`
-  - PI05: `gs://openpi-assets/checkpoints/pi05_base`
+- `POLICY_CHECKPOINT_DIR`
+- `POLICY_NORM_STATS_PATH`
+- `POLICY_EVALUATION_SUITE_NAME`
+- `POLICY_METADATA_SAVE_DIR` (custom_openpi `data_dir`, where metadata/latents are saved)
 
-### Robot runtime settings (`ROBOT_RUNTIME`)
+Current defaults are already set to your local paths.
 
-- Policy endpoint: `policy_host`, `policy_port`
-- Prompt: `prompt`
-- Control loop/horizon: `action_horizon`, `max_hz`, episode limits
-- Camera routing:
-  - `camera_host`
-  - `side_camera_port`, `wrist_camera_port`, `front_camera_port`
-- Front camera masking:
-  - `mask_front_left_cols`
-  - `mask_front_right_start`
+## 2) Start robot-side dependencies (3 essential processes)
 
-## 4) Start policy server
+You need these running (same as identified from OpenTeach launcher):
 
-From `openpi/` (server machine):
+1. camera launcher: `robot_camera.py --config-name=camera`
+2. arm controller launcher: `auto_arm.sh`
+3. gripper controller launcher: `auto_gripper.sh`
+
+## 3) Start inference server (OpenPI uv env)
 
 ```bash
-python -m examples.franka_real.serve_policy
+cd /home/ripl/openpi
+source /home/ripl/openpi/.venv/bin/activate
+TORCHDYNAMO_DISABLE=1 python /home/ripl/openpi/examples/franka_real/inference_server.py
 ```
 
-Server behavior:
+Why `TORCHDYNAMO_DISABLE=1`:
 
-- Loads config from `POLICY_SERVER`.
-- Creates trained policy using required custom args (`evaluation_suite_name`, `data_dir`).
-- Serves over websocket on configured host/port.
+- On this machine (RTX 2080 Ti), `torch.compile`/Triton can fail at first inference with bf16/f16 compile errors.
+- Disabling Dynamo avoids that compile path and keeps GPU inference working.
 
-## 5) Start Franka runtime client
+## 4) (Optional but recommended) test server responsiveness
 
-From `openpi/` (robot machine):
+In another terminal:
 
 ```bash
-python -m examples.franka_real.main
+cd /home/ripl/openpi
+source /home/ripl/openpi/.venv/bin/activate
+python /home/ripl/openpi/examples/franka_real/test_inference_server.py --host 127.0.0.1 --port 8000 --num-requests 3 --timeout 180
 ```
 
-Client behavior:
+## 5) Start robot communicator (OpenTeach env python)
 
-- Connects to policy websocket server.
-- Streams Franka observations (state + images).
-- Receives action chunks and executes one action at a time via `ActionChunkBroker`.
+```bash
+cd /home/ripl/openpi
+/home/jeremiah/miniforge3/envs/openteach/bin/python /home/ripl/openpi/examples/franka_real/robot_communicator.py
+```
 
-## 6) Data/IO conventions used
+## 6) One-command launcher for all 5 processes
+
+You can launch all required panes (3 OpenTeach processes + inference server + robot communicator) with:
+
+```bash
+~/openteach/franka_openpi_eval.bash
+```
+
+Optional NUC override:
+
+```bash
+~/openteach/franka_openpi_eval.bash 172.16.0.3
+```
+
+## 7) Data IO conventions
 
 Observation sent to policy:
 
@@ -94,42 +84,27 @@ Observation sent to policy:
 
 Action applied to robot:
 
-- `actions[0:8]` interpreted as:
-  - `[x, y, z, quat_x, quat_y, quat_z, quat_w, gripper]`
+- first 8 dims: `[x, y, z, quat_x, quat_y, quat_z, quat_w, gripper]`
 
-Image preprocessing:
+## Troubleshooting
 
-- BGR -> RGB conversion
-- front camera horizontal masking (same as prior Franka stack)
-- resize/pad to configured size (default `224x224`)
-- uint8 conversion
+`ModuleNotFoundError: examples.franka_real` from communicator:
 
-## 7) Troubleshooting
+- Use latest files where local imports are fixed (`import config`, `import franka_interface`).
 
-## `ConnectionError: Franka interface is not connected (last_q is None).`
+`transformers_replace is not installed correctly`:
 
-- OpenTeach Franka operator is not fully connected.
-- Check OpenTeach network config and robot process state.
+```bash
+cd /home/ripl/openpi
+source /home/ripl/openpi/.venv/bin/activate
+TRANSFORMERS_DIR=$(python - <<'PY'
+import pathlib, transformers
+print(pathlib.Path(transformers.__file__).resolve().parent)
+PY
+)
+cp -r src/openpi/models_pytorch/transformers_replace/* "$TRANSFORMERS_DIR"/
+```
 
-## No camera images / blocked inference
+Server starts but first inference crashes with Triton bf16/f16 error:
 
-- Verify `camera_host` and ports in `config.py`.
-- Verify ZMQ camera publishers are up.
-
-## Server reachable but actions fail shape check
-
-- Franka client expects 8D action vectors.
-- Ensure you are serving a Franka-compatible config (`pi0_franka_object` or `pi05_franka_object`) or compatible custom checkpoint/config.
-
-## Prompt not affecting behavior
-
-- Ensure `ROBOT_RUNTIME.prompt` is non-empty.
-- If using server-side default prompt, set `POLICY_SERVER.default_prompt`.
-
-## 8) Minimal run checklist
-
-1. Edit `examples/franka_real/config.py`.
-2. Start server: `python -m examples.franka_real.serve_policy`.
-3. Start robot client: `python -m examples.franka_real.main`.
-4. Confirm websocket connection and incoming actions.
-5. Confirm robot moves with valid 8D EE+gripper commands.
+- Confirm server was started with `TORCHDYNAMO_DISABLE=1`.

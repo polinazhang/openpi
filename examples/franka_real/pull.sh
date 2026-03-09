@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-HF_REPO="PolinAvA/pi05_franka_base"
+HF_REPO="PolinAvA/pi05_franka_jax"
 DEST_DIR="/home/ripl/openpi/checkpoints"
 
 mkdir -p "$DEST_DIR"

@@ -1,16 +1,16 @@
 Previously, I gave this instruction `instruction/completed.md`, and it was completed. I am running you on the computer that runs the robot now. I realized there are a few changes need to be made given the exact conditions on the computer.
 
-The robot can be launched by conda env but you can't use conda activate. Just directly use the python executable []. This should be used as the command to launch all scripts instead of the openpi inference server. You do not have permission to modify this environment so keep it as it is. So I think the robot side of api should be launched in that environment. However, that environment can't run openpi inference. So I need a uv environment for the pi0/pi05 inference server, and the openteach environment for communicating with the robot. But the previous implementation in `openpi/examples/franka_real` mixed them together.
+The robot can be launched by conda env but you can't use conda activate. Just directly use the python executable [/home/jeremiah/miniforge3/envs/openteach/bin/python]. This should be used as the command to launch all scripts instead of the openpi inference server. You do not have permission to modify this environment so keep it as it is. So I think the robot side of api should be launched in that environment. However, that environment can't run openpi inference. So I need a uv environment for the pi0/pi05 inference server, and the openteach environment for communicating with the robot. But the previous implementation in `openpi/examples/franka_real` mixed them together.
 
 I want you to fix this, and break the script into two parts to run, (1) openpi inference that runs in the openpi uv environment, and (2) robot communication that runs in the openteach environment.
 
-For (1) openpi inference that runs in the openpi uv environment, it should be run with activating the uv openpi environment and running a standalone script. It should be running python path_to_scipt.py instead of python a.b.c.py. 
+For (1) openpi inference that runs in the openpi uv environment, it should be run with activating the uv openpi environment and running a standalone script. It should be running python path_to_scipt.py instead of python a.b.c.py.
 
-For (2) robot communication that runs in the openteach environment, it should be run with this python executation []. so the commands to run (and type in the terminal) is [] path_to_script.py. 
+For (2) robot communication that runs in the openteach environment, it should be run with this python executation [/home/jeremiah/miniforge3/envs/openteach/bin/python]. so the commands to run (and type in the terminal) is [/home/jeremiah/miniforge3/envs/openteach/bin/python] path_to_script.py.
 
-Later on, you should also launch them activating the envs and giving user the correct commands for them to just type enter in the counterpart of `openteach/franka_eval.sh` that you should write later.
+Later on, you should also launch them activating the envs and giving user the correct commands for them to just type enter in the counterpart of `~/openteach/franka_eval.sh` that you should write later.
 
-To launch the communication with the robot, we should run the process `openteach/franka_eval.sh`, where only three of the terminals are useful for our settings: the camera launcher, the robot controller laucher, and another robot control launcher. You should be able to identify the three scripts I talk about.
+To launch the communication with the robot, we should run the process `~/openteach/franka_eval.sh`, where only three of the terminals are useful for our settings: the camera launcher, the robot controller laucher, and another robot control launcher. You should be able to identify the three scripts I talk about.
 
 Don't change that script, but consider write another sh script that only launches the three scripts we need for running openpi inference, along with the other two scripts I want you to add for franka_real.
 
@@ -20,7 +20,7 @@ Complete the following milestones. You must wait for explicit instruction from t
 - Adjust the code in `openpi/examples/franka_real` to align with the new design (separate uv/conda environments for different processes). Write the openpi inference server.
 - Run the openpi inference server, and write a test script to run in another terminal to test if it's correctly responsive or not. Keep testing until you verified that the server is correctly responding to queries.
 - Write the robot communication code.
-- Create another sh launcher that launches the three terminals, pi inference server, and robot communicator. It should create separate terminals/tabs for all five processes like `openteach/franka_eval.sh`. 
+- Create another sh launcher that launches the three terminals, pi inference server, and robot communicator. It should create separate terminals/tabs for all five processes like `~/openteach/franka_eval.sh`.
 - Create a user tutorial (the instructions should be brief) on what to run for inferencing pi on the robot.
 
 

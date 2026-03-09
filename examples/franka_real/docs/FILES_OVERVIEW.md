@@ -1,129 +1,84 @@
-# Franka OpenPI Inference Stack: File Overview
+# Franka OpenPI Stack: File Overview (Current)
 
-This document describes the Franka inference files added under `examples/franka_real` and the one config addition in `src/openpi/training/config.py`.
+This directory now uses a split-process design:
 
-## Goals of this stack
+1. OpenPI inference server in uv env.
+2. Robot communicator in OpenTeach env.
 
-- Run remote OpenPI inference for Franka while following existing OpenPI conventions (`Runtime`, `WebsocketClientPolicy`, `ActionChunkBroker`).
-- Keep robot communication independent from `lerobot`.
-- Preserve the known-good Franka observation/action conventions from the previous LeRobot-based stack.
-- Support both `pi0` and `pi05` with base checkpoint defaults unless a custom checkpoint path is set.
-- Keep user-facing settings in a Python config file rather than CLI arguments.
-
-## Added files
+## Core files
 
 ## `examples/franka_real/config.py`
 
-Central, user-editable configuration.
+Single place for user configuration.
 
-Contains two dataclasses:
+Important user-editable variables:
 
-- `PolicyServerConfig`
-  - `evaluation_suite_name`, `data_dir` (required by this customized OpenPI behavior)
-  - `host`, `port`
-  - `model_family` (`pi0` or `pi05`)
-  - `checkpoint_dir` (optional override)
-  - `default_prompt` (optional)
+- `POLICY_CHECKPOINT_DIR`
+- `POLICY_NORM_STATS_PATH`
+- `POLICY_EVALUATION_SUITE_NAME`
+- `POLICY_METADATA_SAVE_DIR`
 
-- `RobotRuntimeConfig`
-  - policy server endpoint (`policy_host`, `policy_port`)
-  - runtime control (`action_horizon`, `max_hz`, episode limits)
-  - prompt
-  - camera endpoint/ports
-  - front-camera masking params
-  - render size
+`POLICY_SERVER` contains inference server settings.
+`ROBOT_RUNTIME` contains robot runtime settings (server endpoint, hz, horizon, camera ports, prompt).
 
-Singletons:
+## `examples/franka_real/inference_server.py`
 
-- `POLICY_SERVER`
-- `ROBOT_RUNTIME`
+Standalone OpenPI inference server (run in uv env).
+
+- Loads policy from explicit checkpoint path (no default checkpoint fallback).
+- Loads norm stats from explicit `norm_stats.json` path.
+- Uses custom_openpi-required args:
+  - `evaluation_suite_name`
+  - `data_dir` (metadata root)
+- Serves HTTP endpoints:
+  - `GET /health`
+  - `GET /metadata`
+  - `POST /infer`
+
+## `examples/franka_real/test_inference_server.py`
+
+Standalone server responsiveness test client.
+
+- Calls `/health`.
+- Sends synthetic observations to `/infer`.
+- Verifies response shape and prints latency stats.
 
 ## `examples/franka_real/franka_interface.py`
 
-Hardware bridge for Franka + cameras using OpenTeach APIs.
+OpenTeach-based Franka hardware adapter.
 
-Responsibilities:
+- Subscribes to side/wrist/front camera streams.
+- Reads joint+gripper state.
+- Applies front-camera masking and BGR->RGB conversion.
+- Sends 8D Cartesian pose + gripper command.
 
-- Initialize ZMQ camera subscribers for side/wrist/front streams.
-- Initialize `FrankaArmOperator` using OpenTeach `network.yaml` host settings.
-- Read observations:
-  - camera frames
-  - joint state (`last_q`)
-  - gripper state (`last_gripper_q`)
-- Apply camera preprocessing compatible with existing Franka data/runtime:
-  - BGR -> RGB conversion
-  - front camera column masking (`:140`, `500:` by default)
-- Send 8D actions `[x, y, z, quat_x, quat_y, quat_z, quat_w, gripper]` via `arm_control(...)`.
+## `examples/franka_real/robot_communicator.py`
 
-## `examples/franka_real/env.py`
+Standalone robot communication runtime (run with OpenTeach python executable).
 
-OpenPI-client environment adapter (`openpi_client.runtime.environment.Environment`).
+- Waits for inference server and robot connection.
+- Builds policy observations from live cameras/state.
+- Requests action chunks from `/infer`.
+- Executes one action per control step on Franka.
 
-Responsibilities:
+## Legacy files
 
-- Wrap `FrankaInterface` into runtime-compatible methods:
-  - `reset`
-  - `is_episode_complete`
-  - `get_observation`
-  - `apply_action`
-- Convert raw camera images into policy-ready images:
-  - resize+pad to configured resolution (default 224x224)
-  - uint8 format
-- Emit OpenArm-style policy input keys:
-  - `head_image` (front)
-  - `left_wrist_image` (wrist)
-  - `right_wrist_image` (side)
-  - `state` (7 joints + gripper)
-  - `prompt`
+These files are from the earlier websocket/openpi-client flow and are not the primary run path now:
 
-## `examples/franka_real/main.py`
+- `examples/franka_real/main.py`
+- `examples/franka_real/env.py`
+- `examples/franka_real/serve_policy.py`
 
-Robot-side runtime entrypoint.
+## External launcher
 
-Responsibilities:
+New 5-process launcher (outside this repo):
 
-- Connect to remote policy server (`WebsocketClientPolicy`).
-- Wrap policy with `ActionChunkBroker`.
-- Build and run `Runtime` with `FrankaRealEnvironment`.
-- Use config-only settings from `ROBOT_RUNTIME`.
+- `~/openteach/franka_openpi_eval.bash`
 
-## `examples/franka_real/serve_policy.py`
+It launches:
 
-Server-side policy serving entrypoint for Franka.
-
-Responsibilities:
-
-- Select config/checkpoint pair by `model_family`:
-  - `pi0` -> `pi0_franka_object` + `gs://openpi-assets/checkpoints/pi0_base`
-  - `pi05` -> `pi05_franka_object` + `gs://openpi-assets/checkpoints/pi05_base`
-- Allow custom checkpoint override via `checkpoint_dir`.
-- Create policy with required custom arguments:
-  - `evaluation_suite_name`
-  - `data_dir`
-- Serve over websocket with metadata.
-
-## Modified file
-
-## `src/openpi/training/config.py`
-
-Added config:
-
-- `pi0_franka_object`
-
-Why:
-
-- `pi05_franka_object` already existed.
-- `pi0` support required a corresponding train/inference config so `get_config("pi0_franka_object")` works.
-
-## Observation/action schema used by this stack
-
-- Observation state: 8D (`joint1..joint7`, `gripper_pos`)
-- Observation images: front/wrist/side
-- Policy output consumed: first 8 dims
-- Robot command: Cartesian EE pose (7D quaternion pose) + gripper (1D)
-
-## Design notes
-
-- No `lerobot` imports are used.
-- Architecture intentionally mirrors existing OpenPI examples (minimal changes).
-- All frequent user edits live in `config.py`.
+1. camera launcher
+2. arm controller launcher
+3. gripper controller launcher
+4. OpenPI inference server (`TORCHDYNAMO_DISABLE=1`)
+5. robot communicator

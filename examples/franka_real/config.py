@@ -7,24 +7,40 @@ class ModelFamily(str, Enum):
     PI05 = "pi05"
 
 
+# User-editable paths for Franka inference.
+POLICY_CHECKPOINT_DIR = "/home/ripl/openpi/checkpoints/franka_base_torch/30000"
+POLICY_NORM_STATS_PATH = "/home/ripl/openpi/checkpoints/franka_base_torch/30000/norm_stats.json"
+POLICY_EVALUATION_SUITE_NAME = "franka_eval"
+# custom_openpi.md `data_dir`: root directory where latent/action metadata is saved.
+POLICY_METADATA_SAVE_DIR = "/data3/openpi"
+
+
 @dataclass(frozen=True)
 class PolicyServerConfig:
     # Required by this customized OpenPI fork (see custom_openpi.md).
-    evaluation_suite_name: str = "franka_eval"
-    data_dir: str = "/tmp/openpi_metadata"
+    evaluation_suite_name: str = POLICY_EVALUATION_SUITE_NAME
+    data_dir: str = POLICY_METADATA_SAVE_DIR
 
     host: str = "0.0.0.0"
     port: int = 8000
+    infer_path: str = "/infer"
+    metadata_path: str = "/metadata"
+    health_path: str = "/health"
 
     model_family: ModelFamily = ModelFamily.PI05
     checkpoint_dir: str | None = None
+    norm_stats_path: str | None = None
     default_prompt: str | None = None
 
 
 @dataclass(frozen=True)
 class RobotRuntimeConfig:
-    policy_host: str = "0.0.0.0"
+    policy_host: str = "127.0.0.1"
     policy_port: int = 8000
+    infer_path: str = "/infer"
+    metadata_path: str = "/metadata"
+    health_path: str = "/health"
+    request_timeout_sec: float = 20.0
 
     action_horizon: int = 10
     max_hz: float = 20.0
@@ -46,5 +62,10 @@ class RobotRuntimeConfig:
     render_width: int = 224
 
 
-POLICY_SERVER = PolicyServerConfig()
+POLICY_SERVER = PolicyServerConfig(
+    evaluation_suite_name=POLICY_EVALUATION_SUITE_NAME,
+    data_dir=POLICY_METADATA_SAVE_DIR,
+    checkpoint_dir=POLICY_CHECKPOINT_DIR,
+    norm_stats_path=POLICY_NORM_STATS_PATH,
+)
 ROBOT_RUNTIME = RobotRuntimeConfig()

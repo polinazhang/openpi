@@ -7,7 +7,7 @@ from openteach.components.operators.franka import FrankaArmOperator
 from openteach.utils.network import ZMQCameraSubscriber
 import yaml
 
-from examples.franka_real import config as _config
+import config as _config
 
 
 class FrankaInterface:
