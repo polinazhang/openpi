@@ -27,6 +27,8 @@ policy = policy_config.create_trained_policy(
     evaluation_suite_name="libero_object_debug",
     data_dir="/tmp/openpi_metadata",
 )
+
+policy.end_trajectory()
 ```
 
 Better Example 

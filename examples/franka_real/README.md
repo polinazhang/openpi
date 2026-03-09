@@ -3,9 +3,9 @@
 
 In `examples/franka_real/config.py`, before every run, set:
 
-the model checkpoint and its normalization-stats path
+1) the model checkpoint and its normalization-stats path
 
-`POLICY_EVALUATION_SUITE_NAME`, which specifies the folder where the evaluation latents are saved
+2) `POLICY_EVALUATION_SUITE_NAME`, which specifies the folder where the evaluation latents are saved
 
 
 
