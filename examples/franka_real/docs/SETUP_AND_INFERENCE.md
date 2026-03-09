@@ -17,6 +17,9 @@ Main user-editable variables:
 - `POLICY_NORM_STATS_PATH`
 - `POLICY_EVALUATION_SUITE_NAME`
 - `POLICY_METADATA_SAVE_DIR` (custom_openpi `data_dir`, where metadata/latents are saved)
+- `ROBOT_RUNTIME.max_allowed_inferences_per_episode`
+- `ROBOT_RUNTIME.max_allowed_episode_seconds`
+- `ROBOT_RUNTIME.test_inference_count`
 
 Current defaults are already set to your local paths.
 
@@ -58,6 +61,35 @@ cd /home/ripl/openpi
 /home/jeremiah/miniforge3/envs/openteach/bin/python /home/ripl/openpi/examples/franka_real/robot_communicator.py
 ```
 
+Default behavior (`eval` mode):
+
+- Runs one episode, then waits for user input before next episode.
+- Episode stops when any of these occurs:
+  - any key press,
+  - `max_allowed_inferences_per_episode`,
+  - `max_allowed_episode_seconds`,
+  - `max_episode_steps`.
+- On episode end it explicitly calls `policy.end_trajectory()` via server endpoint.
+- Then prompts:
+  - `Please reset the robot. Has the reset finished? y/N`
+  - waits until `y`.
+
+Episode metadata folder convention:
+
+- Creates `${POLICY_METADATA_SAVE_DIR}/${POLICY_EVALUATION_SUITE_NAME}` if missing.
+- Counts existing subfolders under it.
+- Creates next subfolder with 4 digits (`0000`, `0001`, ...).
+- Uses that per-episode subfolder as evaluation suite for latent saving.
+
+Test mode:
+
+```bash
+/home/jeremiah/miniforge3/envs/openteach/bin/python /home/ripl/openpi/examples/franka_real/robot_communicator.py --test
+```
+
+- Runs exactly `test_inference_count` (default 5) inference calls, executes resulting actions, then stops.
+- Ignores `POLICY_EVALUATION_SUITE_NAME` and saves latents under `${POLICY_METADATA_SAVE_DIR}/test`.
+
 ## 6) One-command launcher for all 5 processes
 
 You can launch all required panes (3 OpenTeach processes + inference server + robot communicator) with:
@@ -70,6 +102,12 @@ Optional NUC override:
 
 ```bash
 ~/openteach/franka_openpi_eval.bash 172.16.0.3
+```
+
+Launch test mode from launcher:
+
+```bash
+~/openteach/franka_openpi_eval.bash 172.16.0.3 test
 ```
 
 ## 7) Data IO conventions

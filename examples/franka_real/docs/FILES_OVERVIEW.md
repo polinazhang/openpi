@@ -34,6 +34,8 @@ Standalone OpenPI inference server (run in uv env).
   - `GET /health`
   - `GET /metadata`
   - `POST /infer`
+  - `POST /begin_episode` (switch evaluation suite path for next episode)
+  - `POST /end_trajectory` (explicitly finalize latent metadata saving)
 
 ## `examples/franka_real/test_inference_server.py`
 
@@ -60,6 +62,14 @@ Standalone robot communication runtime (run with OpenTeach python executable).
 - Builds policy observations from live cameras/state.
 - Requests action chunks from `/infer`.
 - Executes one action per control step on Franka.
+- Default eval mode:
+  - runs episode-by-episode until user stops the process,
+  - ends episode on keypress / max inference count / max episode time / max steps,
+  - calls `/end_trajectory`,
+  - prompts for `y` before next episode.
+- `--test` mode:
+  - runs exactly `test_inference_count` inference calls (default 5),
+  - saves under `test` suite.
 
 ## Legacy files
 

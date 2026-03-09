@@ -59,6 +59,7 @@ class _InferenceHandler(http.server.BaseHTTPRequestHandler):
     policy_lock = threading.Lock()
     metadata: dict[str, Any] | None = None
     cfg = _runtime_config.POLICY_SERVER
+    current_evaluation_suite_name = _runtime_config.POLICY_SERVER.evaluation_suite_name
 
     def _write_json(self, code: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -88,6 +89,8 @@ class _InferenceHandler(http.server.BaseHTTPRequestHandler):
                     "model_family": self.cfg.model_family.value,
                     "checkpoint_dir": self.cfg.checkpoint_dir,
                     "norm_stats_path": self.cfg.norm_stats_path,
+                    "data_dir": self.cfg.data_dir,
+                    "evaluation_suite_name": self.current_evaluation_suite_name,
                 },
             )
             return
@@ -100,6 +103,43 @@ class _InferenceHandler(http.server.BaseHTTPRequestHandler):
         self._write_json(404, {"ok": False, "error": f"unknown path: {self.path}"})
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path == self.cfg.begin_episode_path:
+            try:
+                body = self._read_body()
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                evaluation_suite_name = payload.get("evaluation_suite_name")
+                if not isinstance(evaluation_suite_name, str) or not evaluation_suite_name.strip():
+                    raise ValueError("begin_episode requires non-empty string 'evaluation_suite_name'")
+
+                with self.policy_lock:
+                    if hasattr(self.policy, "_metadata_logger"):
+                        from openpi.policies.metadata_logger import MetadataLogger
+
+                        self.policy._metadata_logger = MetadataLogger(self.cfg.data_dir, evaluation_suite_name)
+                    self.current_evaluation_suite_name = evaluation_suite_name
+                logger.info("Episode metadata suite set to: %s", evaluation_suite_name)
+                self._write_json(
+                    200,
+                    {
+                        "ok": True,
+                        "evaluation_suite_name": evaluation_suite_name,
+                    },
+                )
+            except Exception as exc:
+                self._write_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if self.path == self.cfg.end_trajectory_path:
+            try:
+                with self.policy_lock:
+                    if hasattr(self.policy, "end_trajectory"):
+                        self.policy.end_trajectory()
+                self._write_json(200, {"ok": True})
+            except Exception as exc:
+                logger.exception("end_trajectory failed")
+                self._write_json(500, {"ok": False, "error": str(exc), "traceback": traceback.format_exc()})
+            return
+
         if self.path != self.cfg.infer_path:
             self._write_json(404, {"ok": False, "error": f"unknown path: {self.path}"})
             return
@@ -176,10 +216,18 @@ def main() -> None:
     _InferenceHandler.policy = policy
     _InferenceHandler.metadata = policy.metadata
     _InferenceHandler.cfg = cfg
+    _InferenceHandler.current_evaluation_suite_name = cfg.evaluation_suite_name
 
     logger.info("Policy metadata: %s", _json_safe(policy.metadata))
     logger.info("Starting inference HTTP server on %s:%s", cfg.host, cfg.port)
-    logger.info("Endpoints: %s %s %s", cfg.health_path, cfg.metadata_path, cfg.infer_path)
+    logger.info(
+        "Endpoints: %s %s %s %s %s",
+        cfg.health_path,
+        cfg.metadata_path,
+        cfg.infer_path,
+        cfg.begin_episode_path,
+        cfg.end_trajectory_path,
+    )
     httpd = http.server.ThreadingHTTPServer((cfg.host, cfg.port), _InferenceHandler)
     httpd.serve_forever()
 
