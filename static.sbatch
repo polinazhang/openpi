@@ -11,41 +11,46 @@
 #SBATCH --nodes=1
 
 source ~/.bashrc
-cd /work/nvme/bfbo/xzhang42/openpi
-source /work/nvme/bfbo/xzhang42/openpi/.venv/bin/activate
-
 set -euo pipefail
+export XDG_CACHE_HOME=/coc/testnvme/xzhang3205/.cache
+source /coc/testnvme/xzhang3205/openpi/.venv/bin/activate
+export TRANSFORMERS_CACHE=/coc/testnvme/xzhang3205/huggingface
+export OPENPI_DATA_HOME=/coc/testnvme/xzhang3205/openpi/.cache
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000}"
+DATASET="${DATASET:-franka_object}"
+mkdir -p "${OUTPUT_ROOT}"
 
-export XDG_CACHE_HOME=/work/nvme/bfbo/xzhang42/.cache
-export OPENPI_DATA_HOME=/work/nvme/bfbo/xzhang42/openpi/.cache
-
-# EXTREMELY IMPORTANT: completely remove 12.3 SDK paths
-export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -v '/opt/nvidia/hpc_sdk/Linux_aarch64/24.3' | paste -sd:)
-
-export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
-export XLA_PYTHON_CLIENT_ALLOCATOR=platform
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-export XLA_FLAGS="--xla_gpu_enable_triton_gemm=false --xla_gpu_autotune_level=0"
-
-python - <<'PY'
-import jax, jaxlib, jax.numpy as jnp
-print("jax", jax.__version__)
-print("jaxlib", jaxlib.__version__)
-print("jaxlib file", jaxlib.__file__)
-print("devices", jax.devices())
-x = jnp.ones((2048, 2048), dtype=jnp.float16)
-y = x @ x
-print(y.block_until_ready())
+python - <<'PY' || true
+import ctypes
+for candidates in [
+    ["libavutil.so.56", "libavutil.so.57", "libavutil.so.58"],
+    ["libavcodec.so.58", "libavcodec.so.59", "libavcodec.so.60"],
+    ["libavformat.so.58", "libavformat.so.59", "libavformat.so.60"],
+]:
+    for lib in candidates:
+        try:
+            ctypes.CDLL(lib)
+            print("OK", lib)
+            break
+        except OSError:
+            continue
 PY
 
-DATASETS=(use_steel_spoon)
+declare -A DATASET_PROMPTS=(
+  [franka_object]=""
+  [franka_object_two]="place the pink block in the bin, then place the blue block in the bin"
+  [franka_on_top]="place the pink block on top of the blue block"
+)
 
-for dataset in "${DATASETS[@]}"; do
-  echo "=== Running static metrics for ${dataset} ==="
-  python openarm/static_inference.py --dataset "${dataset}" --skip-frame 10
-done
+echo "=== Running static metrics for ${DATASET} ==="
+prompt="${DATASET_PROMPTS[$DATASET]:-}"
+cmd=(python openarm/static_inference.py --dataset "${DATASET}" --skip-frame 10 --output-root "${OUTPUT_ROOT}" --checkpoint-dir "${CHECKPOINT_DIR}")
+if [[ -n "${prompt}" ]]; then
+  cmd+=(--data.default_prompt "${prompt}")
+fi
+"${cmd[@]}"
 
-for dataset in "${DATASETS[@]}"; do
-  echo "=== Printing static metrics for ${dataset} ==="
-  python openarm/static_print.py --data-dir "/work/nvme/bfbo/xzhang42/static/${dataset}"
-done
+echo "=== Printing static metrics for ${DATASET} ==="
+python openarm/static_print.py --data-dir "${OUTPUT_ROOT}/${DATASET}"

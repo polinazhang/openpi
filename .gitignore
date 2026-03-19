@@ -3,6 +3,10 @@ assets/
 checkpoints/
 data/
 wandb/
+lerobot
+results
+franka/
+prompts/.outdated
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

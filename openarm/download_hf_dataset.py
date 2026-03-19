@@ -9,8 +9,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-DATA_ROOT = Path("/work/nvme/bfbo/xzhang42/datasets")
-HF_CACHE = Path("/work/nvme/bfbo/xzhang42/huggingface")
+DATA_ROOT = Path("/coc/testnvme/xzhang3205/datasets")
+HF_CACHE = Path("/coc/testnvme/xzhang3205/huggingface")
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "repo_id",
         nargs="?",
-        default="qrafty-ai/tea_use_spoon",
+        default="qrafty-ai/tea_pick_cup",
         help="Dataset repo on the Hugging Face Hub (default: %(default)s).",
     )
     return parser.parse_args()

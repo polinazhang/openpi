@@ -41,6 +41,31 @@ DATASETS: dict[str, dict[str, str]] = {
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_steel_spoon",
         "config": "pi05_tea_use_steel_spoon",
     },
+    "franka_object": {
+        "repo": "franka_object",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object",
+        "config": "pi05_franka_object",
+    },
+    "franka_object_plus": {
+        "repo": "franka_object",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_plus",
+        "config": "pi05_franka_object",
+    },
+    "franka_object_plus_2": {
+        "repo": "franka_object",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_plus_2",
+        "config": "pi05_franka_object",
+    },
+    "franka_object_two": {
+        "repo": "franka_object_two",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_two",
+        "config": "pi05_franka_object",
+    },
+    "franka_on_top": {
+        "repo": "franka_on_top",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_on_top",
+        "config": "pi05_franka_object",
+    },
 }
 
 DEFAULT_OUTPUT_ROOT = Path("/work/nvme/bfbo/xzhang42/static")
