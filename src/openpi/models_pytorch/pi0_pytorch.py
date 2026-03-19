@@ -494,6 +494,120 @@ class PI0Pytorch(nn.Module):
             pass
 
     @torch.no_grad()
+    def _prepare_static_prefix_context(self, observation):
+        """Build reusable prefix cache for static-only analysis routines."""
+        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=False)
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
+            images, img_masks, lang_tokens, lang_masks
+        )
+        prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+        prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
+        prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
+        self.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"  # noqa: SLF001
+
+        _, past_key_values, _ = self.paligemma_with_expert.forward(
+            attention_mask=prefix_att_2d_masks_4d,
+            position_ids=prefix_position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, None],
+            use_cache=True,
+        )
+        return state, prefix_pad_masks, past_key_values
+
+    def _compute_static_guidance_raw(self, x_t, tau, v_t, actions):
+        """Compute unscaled guidance VJP term:
+
+        (A* - A_hat0)^T * d(A_hat0)/d(A_t^tau), where A_hat0 = A_t^tau - tau * v(A_t^tau, o, tau).
+        """
+        tau_expanded = tau[:, None, None].to(dtype=torch.float32, device=x_t.device)
+        a_hat0 = x_t - tau_expanded * v_t
+        residual = (actions - a_hat0).detach()
+        guidance_raw = torch.autograd.grad(
+            outputs=a_hat0,
+            inputs=x_t,
+            grad_outputs=residual,
+            retain_graph=False,
+            create_graph=False,
+        )[0]
+        return guidance_raw, a_hat0
+
+    def compute_static_gradient_guidance_training(self, observation, actions, *, noise=None, time=None):
+        """Static-only gradient guidance under training-time condition."""
+        state, prefix_pad_masks, past_key_values = self._prepare_static_prefix_context(observation)
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        noise = noise.to(device=device, dtype=torch.float32)
+        if time is None:
+            time = self.sample_time(actions.shape[0], device)
+        time = time.to(device=device, dtype=torch.float32)
+
+        time_expanded = time[:, None, None]
+        x_t = (time_expanded * noise + (1 - time_expanded) * actions).detach().requires_grad_(True)
+        v_t = self.denoise_step(
+            state,
+            prefix_pad_masks,
+            past_key_values,
+            x_t,
+            time,
+        )
+        guidance_raw, _ = self._compute_static_guidance_raw(x_t, time, v_t, actions)
+        target = noise - actions
+        final_loss = torch.linalg.norm(v_t.detach() - target, dim=-1)
+        return {
+            "gradient_steps": [guidance_raw.detach()],
+            "tau_steps": [time.detach()],
+            "final_layer_loss": final_loss.detach().unsqueeze(1),
+        }
+
+    def compute_static_gradient_guidance_inference(self, observation, actions, *, noise=None, num_steps=10):
+        """Static-only gradient guidance under inference-time condition."""
+        state, prefix_pad_masks, past_key_values = self._prepare_static_prefix_context(observation)
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        noise = noise.to(device=device, dtype=torch.float32)
+
+        dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
+        target = noise - actions
+        x_t = noise.detach()
+        time = torch.tensor(1.0, dtype=torch.float32, device=device)
+
+        gradient_steps: list[torch.Tensor] = []
+        tau_steps: list[torch.Tensor] = []
+        final_losses: list[torch.Tensor] = []
+        for _ in range(num_steps):
+            tau = time.expand(actions.shape[0])
+            x_t_step = x_t.detach().requires_grad_(True)
+            v_t = self.denoise_step(
+                state,
+                prefix_pad_masks,
+                past_key_values,
+                x_t_step,
+                tau,
+            )
+            guidance_raw, _ = self._compute_static_guidance_raw(x_t_step, tau, v_t, actions)
+            gradient_steps.append(guidance_raw.detach())
+            tau_steps.append(tau.detach())
+            final_losses.append(torch.linalg.norm(v_t.detach() - target, dim=-1))
+
+            x_t = (x_t_step + dt * v_t).detach()
+            time = time + dt
+
+        return {
+            "gradient_steps": gradient_steps,
+            "tau_steps": tau_steps,
+            "final_layer_loss": torch.stack(final_losses, dim=1),
+        }
+
+    @torch.no_grad()
+    def compute_static_cosine_targets(self, observation, actions, *, noise=None, time=None, num_steps=10):
+        """Reserved for the two-condition cosine static pipeline."""
+        raise NotImplementedError("Cosine static mode is not implemented yet.")
+
+    @torch.no_grad()
     def compute_static_targets(self, observation, actions, *, noise=None, time=None):
         """Run a teacher-forced pass that returns vt tensors for every layer.
 
