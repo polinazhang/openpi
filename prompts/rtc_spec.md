@@ -12,7 +12,7 @@ For every step of inference, compute
 $$
 v_{\mathrm{guidance}}
 =
-\left(A^* - \widehat{A}_t^0\right)^\top
+(A^* - \widehat{A}_t^0)^\top
 \frac{\partial \widehat{A}_t^0}{\partial A_t^\tau}
 $$
 
@@ -25,7 +25,7 @@ $$
 Optionally, scale $v_{\mathrm{guidance}}$ by
 
 $$
-\min\!\left(\beta, \frac{1 - \tau}{\tau \cdot r_\tau^2}\right)
+\min(\beta, \frac{1 - \tau}{\tau \cdot r_\tau^2})
 $$
 
 to account for variation across $\tau$, where $\beta$ is a hyperparameter to clip the infinity edges.
