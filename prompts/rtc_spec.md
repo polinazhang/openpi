@@ -8,11 +8,8 @@ In all notations, $\tau$ descends from $1$ to $0$.
 
 
 For every step of inference, compute
-
 $$
-v_{\mathrm{guidance}}
-=
-(A^* - \widehat{A}_t^0)^\top
+v_{\mathrm{guidance}} = (A^* - \widehat{A}_t^0)^\top
 \frac{\partial \widehat{A}_t^0}{\partial A_t^\tau}
 $$
 
