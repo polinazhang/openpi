@@ -1,7 +1,7 @@
 ## Context
 **Static inference** is an analysis-only mode. Given demonstration samples, the VLA takes the state and other inputs, runs a “fake” forward denoising process, and does not execute the resulting actions. The generated latents are then compared against the ground-truth actions from the demonstration trajectories.
 
-**Static inference metrics** measure the discrepancy between the direction predicted by the model and the ground-truth direction it is expected to follow. Examples include cosine similarity and EDR, defined in `prompts/edr-cosine.md`.
+**Static inference metrics** measure the discrepancy between the direction predicted by the model and the ground-truth direction it is expected to follow. One example of such metric is cosine similarity defined in `prompts/edr-cosine.md`.
 
 **condition-training** refers to static inference under training-time conditions, where the model starts from x_t = tau*noise + (1-tau)*actions, with sampled tau, and runs one step.
 
@@ -12,6 +12,6 @@ The **condition-training** for cosine similarity and EDR has been implemented, a
 
 The **condition-inference** for cosine similarity and EDR has NOT been implemented.
 
-Both **condition-training** and **condition-inference** for gradient guidance vectorhave NOT been implemented.
+Both **condition-training** and **condition-inference** for gradient guidance vector have NOT been implemented.
 
 The launch method is `static.sbatch`, which calculates cosine and EDR and final layer loss for static inference of the pi05 model on the specified dataset. Note that cosine and EDR are per layer metrics so per layer latents are saved, but final loss and gradient guidance vector are per inference.

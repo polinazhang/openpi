@@ -48,7 +48,19 @@ The content inside /meta are decided by the flag `--save_meta=True` passed in to
 **gradient guidance vector**
 
 The latents that should be saved as files are (use these as file names followed by .npy as well):
-- gradient_step_{step_idx} for condition-training
-- gradient_step_{step_idx} as well for condition-inference
+- gradient_step_{diffusion_step_idx} for condition-training
+- gradient_step_{diffusion_step_idx} as well for condition-inference
 
 `--save_meta=True/False` should not affect the behavior here.
+
+**perturbance**
+
+Note that here step_idx refers to the perturbation step defined in approach 2 inside `prompts/perturbance-calculation-formalization.md`, and is fundamentally different from the diffusion_step_idx in the gradient mode. The latents that should be saved as files are (use these as file names followed by .npy as well):
+
+Take vision embedding as the example here, which could be swapped with action / language / time / state embedding as defined in the formulation file. For those, just replace "vision" with action / language / time / state. 
+
+- gradnorm_vision_step_{step_idx}  [this should be the local sensitivity score $||\nabla_{h_v}L^{(n)}||_2$, where n is the step idx]
+- perturb_loss_vision_step_{step_idx}  [this should be the full loss trajectory $L^{(0)}$,...,$L^{(N)}$ from N perturbation steps on the vision embedding, where $L^{(0)}$ is the loss before perturbation with $\delta_v=0$]
+- meta/perturb_delta_vision_step_{step_idx}  [this should be the full perturbation vector trajectory $\delta_v^{(0)}$,...,$\delta_v^{(N)}$ from N perturbation steps on the vision embedding, where $\delta_v^{(0)}$=0]
+
+The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
