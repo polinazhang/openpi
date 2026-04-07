@@ -580,6 +580,8 @@ def run_cosine_mode(
 
         if args.skip_frame > 1 and global_idx % args.skip_frame != 0:
             continue
+        if not has_valid_action_chunk(sample):
+            continue
 
         sample_for_transform = sample
         if args.data_default_prompt is not None:
