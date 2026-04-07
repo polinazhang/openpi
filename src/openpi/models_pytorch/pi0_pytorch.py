@@ -676,6 +676,306 @@ class PI0Pytorch(nn.Module):
             "cinference_final_prediction": cinference_final,
         }
 
+    def _build_static_prefix_with_slices(self, images, img_masks, lang_tokens, lang_masks):
+        """Build prefix embeddings plus token ranges for vision/language perturbations."""
+        embs = []
+        pad_masks = []
+        att_masks = []
+
+        num_vision_tokens = 0
+        for img, img_mask in zip(images, img_masks, strict=True):
+            img_emb = self.paligemma_with_expert.embed_image(img)
+            bsize, num_img_embs = img_emb.shape[:2]
+            embs.append(img_emb)
+            pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+            att_masks += [0] * num_img_embs
+            num_vision_tokens += num_img_embs
+
+        lang_emb = self.paligemma_with_expert.embed_language_tokens(lang_tokens)
+        lang_emb_dim = lang_emb.shape[-1]
+        lang_emb = lang_emb * math.sqrt(lang_emb_dim)
+        embs.append(lang_emb)
+        pad_masks.append(lang_masks)
+        num_lang_tokens = lang_emb.shape[1]
+        att_masks += [0] * num_lang_tokens
+
+        prefix_embs = torch.cat(embs, dim=1)
+        prefix_pad_masks = torch.cat(pad_masks, dim=1)
+        att_tensor = torch.tensor(att_masks, dtype=torch.bool, device=prefix_embs.device)
+        prefix_att_masks = att_tensor[None, :].expand(prefix_pad_masks.shape[0], len(att_masks))
+
+        return {
+            "prefix_embs": prefix_embs,
+            "prefix_pad_masks": prefix_pad_masks,
+            "prefix_att_masks": prefix_att_masks,
+            "vision_slice": slice(0, num_vision_tokens),
+            "language_slice": slice(num_vision_tokens, num_vision_tokens + num_lang_tokens),
+        }
+
+    def _build_static_suffix_with_slices(self, state, x_t, time):
+        """Build suffix embeddings plus token ranges for action/state/time perturbations."""
+        embs = []
+        pad_masks = []
+        att_masks = []
+        state_slice = None
+
+        if not self.pi05:
+            state_emb = self.state_proj(state)
+            embs.append(state_emb[:, None, :])
+            bsize = state_emb.shape[0]
+            device = state_emb.device
+            state_mask = torch.ones(bsize, 1, dtype=torch.bool, device=device)
+            pad_masks.append(state_mask)
+            att_masks += [1]
+            state_slice = slice(0, 1)
+
+        time_emb = create_sinusoidal_pos_embedding(
+            time, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0, device=time.device
+        )
+        time_emb = time_emb.type(dtype=time.dtype)
+        action_emb = self.action_in_proj(x_t)
+
+        if not self.pi05:
+            time_tokens = time_emb[:, None, :].expand_as(action_emb)
+            action_time_emb = torch.cat([action_emb, time_tokens], dim=2)
+            x = self.action_time_mlp_in(action_time_emb)
+            x = F.silu(x)
+            action_time_emb = self.action_time_mlp_out(x)
+            adarms_cond = None
+            time_cond = None
+        else:
+            x = self.time_mlp_in(time_emb)
+            x = F.silu(x)
+            x = self.time_mlp_out(x)
+            adarms_cond = F.silu(x)
+            action_time_emb = action_emb
+            time_cond = adarms_cond
+
+        embs.append(action_time_emb)
+        bsize, action_len = action_time_emb.shape[:2]
+        action_mask = torch.ones(bsize, action_len, dtype=torch.bool, device=x_t.device)
+        pad_masks.append(action_mask)
+        att_masks += [1] + ([0] * (action_len - 1))
+
+        suffix_embs = torch.cat(embs, dim=1)
+        suffix_pad_masks = torch.cat(pad_masks, dim=1)
+        att_tensor = torch.tensor(att_masks, dtype=torch.bool, device=suffix_embs.device)
+        suffix_att_masks = att_tensor[None, :].expand(bsize, len(att_masks))
+
+        action_start = 1 if not self.pi05 else 0
+        action_slice = slice(action_start, action_start + action_len)
+
+        return {
+            "suffix_embs": suffix_embs,
+            "suffix_pad_masks": suffix_pad_masks,
+            "suffix_att_masks": suffix_att_masks,
+            "state_slice": state_slice,
+            "action_slice": action_slice,
+            "time_cond": time_cond,
+            "adarms_cond": adarms_cond,
+        }
+
+    def _compute_static_pi0_loss_tensor(
+        self,
+        prefix_embs,
+        prefix_pad_masks,
+        prefix_att_masks,
+        suffix_embs,
+        suffix_pad_masks,
+        suffix_att_masks,
+        adarms_cond,
+        u_t,
+    ):
+        """Compute PI0 static loss tensor with canonical reduction: mean over action dim only."""
+        if (
+            self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
+            == torch.bfloat16
+        ):
+            prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
+            suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
+
+        pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
+        att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
+
+        (_, suffix_out), _, _ = self.paligemma_with_expert.forward(
+            attention_mask=att_2d_masks_4d,
+            position_ids=position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, suffix_embs],
+            use_cache=False,
+            adarms_cond=[None, adarms_cond],
+        )
+        suffix_out = suffix_out[:, -self.config.action_horizon :]
+        suffix_out = suffix_out.to(dtype=torch.float32)
+        v_t = self.action_out_proj(suffix_out)
+        loss_tensor = torch.mean(torch.square(v_t - u_t), dim=-1)
+        return loss_tensor, v_t
+
+    def _compute_static_perturbance_single_embedding(
+        self,
+        embedding_type,
+        prefix_pack,
+        suffix_pack,
+        u_t,
+        *,
+        step_num,
+        step_size,
+    ):
+        """Run perturbance optimization trajectory for one embedding type."""
+        prefix_base = prefix_pack["prefix_embs"]
+        suffix_base = suffix_pack["suffix_embs"]
+        base_adarms = suffix_pack["adarms_cond"]
+        delta_target = None
+        is_noop_embedding = False
+
+        if embedding_type == "vision":
+            delta_target = prefix_base[:, prefix_pack["vision_slice"], :]
+        elif embedding_type == "language":
+            delta_target = prefix_base[:, prefix_pack["language_slice"], :]
+        elif embedding_type == "action":
+            delta_target = suffix_base[:, suffix_pack["action_slice"], :]
+        elif embedding_type == "state":
+            if suffix_pack["state_slice"] is None:
+                is_noop_embedding = True
+                delta_target = torch.zeros(
+                    (u_t.shape[0], 1, suffix_base.shape[-1]),
+                    dtype=suffix_base.dtype,
+                    device=suffix_base.device,
+                )
+            else:
+                delta_target = suffix_base[:, suffix_pack["state_slice"], :]
+        elif embedding_type == "time":
+            if suffix_pack["time_cond"] is None:
+                is_noop_embedding = True
+                delta_target = torch.zeros(
+                    (u_t.shape[0], suffix_base.shape[-1]),
+                    dtype=suffix_base.dtype,
+                    device=suffix_base.device,
+                )
+            else:
+                delta_target = suffix_pack["time_cond"]
+        else:
+            raise ValueError(f"Unsupported embedding_type: {embedding_type}")
+
+        delta = torch.zeros_like(delta_target).detach().requires_grad_(True)
+        gradnorm_steps: list[torch.Tensor] = []
+        loss_steps: list[torch.Tensor] = []
+        delta_steps: list[torch.Tensor] = []
+
+        for step_idx in range(step_num + 1):
+            prefix_embs = prefix_base
+            suffix_embs = suffix_base
+            adarms_cond = base_adarms
+
+            if embedding_type == "vision":
+                prefix_embs = prefix_base.clone()
+                prefix_embs[:, prefix_pack["vision_slice"], :] = prefix_embs[:, prefix_pack["vision_slice"], :] + delta
+            elif embedding_type == "language":
+                prefix_embs = prefix_base.clone()
+                prefix_embs[:, prefix_pack["language_slice"], :] = (
+                    prefix_embs[:, prefix_pack["language_slice"], :] + delta
+                )
+            elif embedding_type == "action":
+                suffix_embs = suffix_base.clone()
+                suffix_embs[:, suffix_pack["action_slice"], :] = suffix_embs[:, suffix_pack["action_slice"], :] + delta
+            elif embedding_type == "state":
+                suffix_embs = suffix_base.clone()
+                suffix_embs[:, suffix_pack["state_slice"], :] = suffix_embs[:, suffix_pack["state_slice"], :] + delta
+            elif embedding_type == "time":
+                adarms_cond = base_adarms + delta
+
+            loss_tensor, _ = self._compute_static_pi0_loss_tensor(
+                prefix_embs,
+                prefix_pack["prefix_pad_masks"],
+                prefix_pack["prefix_att_masks"],
+                suffix_embs,
+                suffix_pack["suffix_pad_masks"],
+                suffix_pack["suffix_att_masks"],
+                adarms_cond,
+                u_t,
+            )
+            scalar_loss = torch.mean(loss_tensor)
+            grad = torch.autograd.grad(
+                scalar_loss,
+                delta,
+                retain_graph=False,
+                create_graph=False,
+                allow_unused=True,
+            )[0]
+            if grad is None:
+                grad = torch.zeros_like(delta)
+            gradnorm = torch.linalg.vector_norm(grad.reshape(grad.shape[0], -1), dim=1)
+            gradnorm_steps.append(gradnorm.detach())
+            loss_steps.append(loss_tensor.detach())
+            delta_steps.append(delta.detach())
+
+            if step_idx < step_num:
+                if is_noop_embedding:
+                    delta = delta.detach().requires_grad_(True)
+                else:
+                    delta = (delta - step_size * grad).detach().requires_grad_(True)
+
+        return {
+            "gradnorm_steps": gradnorm_steps,
+            "loss_steps": loss_steps,
+            "delta_steps": delta_steps,
+        }
+
+    def compute_static_perturbance_targets(
+        self,
+        observation,
+        actions,
+        *,
+        embedding_types,
+        step_num=0,
+        step_size=1e-2,
+        noise=None,
+        time=None,
+    ):
+        """Static-only perturbance analysis under condition-training."""
+        if step_num < 0:
+            raise ValueError(f"step_num must be >= 0, got {step_num}")
+        if step_size <= 0:
+            raise ValueError(f"step_size must be > 0, got {step_size}")
+
+        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(
+            observation, train=False
+        )
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        noise = noise.to(device=device, dtype=torch.float32)
+        if time is None:
+            time = self.sample_time(actions.shape[0], device)
+        time = time.to(device=device, dtype=torch.float32)
+
+        time_expanded = time[:, None, None]
+        x_t = time_expanded * noise + (1 - time_expanded) * actions
+        u_t = noise - actions
+
+        prefix_pack = self._build_static_prefix_with_slices(images, img_masks, lang_tokens, lang_masks)
+        suffix_pack = self._build_static_suffix_with_slices(state, x_t, time)
+
+        embedding_results = {}
+        for embedding_type in embedding_types:
+            embedding_results[embedding_type] = self._compute_static_perturbance_single_embedding(
+                embedding_type,
+                prefix_pack,
+                suffix_pack,
+                u_t,
+                step_num=step_num,
+                step_size=step_size,
+            )
+
+        return {
+            "tau": time.detach(),
+            "embeddings": embedding_results,
+        }
+
     @torch.no_grad()
     def compute_static_targets(self, observation, actions, *, noise=None, time=None):
         """Run a teacher-forced pass that returns vt tensors for every layer.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit static inference jobs for cosine + gradient static metrics."""
+"""Submit static inference jobs for cosine + gradient + perturbance static metrics."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ def submit_job(
     checkpoint_dir: Path,
     skip_frame: int,
     max_frames: int,
+    perturbance_step_num: int = 0,
+    perturbance_step_size: float = 1e-2,
+    embedding_type: str = "vision+action",
 ) -> None:
     output_root = Path("/coc/testnvme/xzhang3205/static") / folder_name / dataset / mode
     output_root.mkdir(parents=True, exist_ok=True)
@@ -41,6 +44,9 @@ def submit_job(
         "SKIP_FRAME": str(skip_frame),
         "NUM_STEPS": "10",
         "MAX_FRAMES": str(max_frames),
+        "PERTURBANCE_STEP_NUM": str(perturbance_step_num),
+        "PERTURBANCE_STEP_SIZE": str(perturbance_step_size),
+        "EMBEDDING_TYPE": embedding_type,
     }
     export_str = ",".join([f"{k}={v}" for k, v in export_vars.items()])
     cmd = ["sbatch", f"--export=ALL,{export_str}", "launch_static.sbatch"]
@@ -69,8 +75,9 @@ if __name__ == "__main__":
 
     runs = [
         ("cosine", "cosine", "training", False),
-        # ("gradient-training", "gradient", "training", True),
-        # ("gradient-inference", "gradient", "inference", True),
+        ("gradient-training", "gradient", "training", False),
+        ("gradient-inference", "gradient", "inference", False),
+        ("perturbance", "perturbance", "training", True),
     ]
 
     # Test mode should finish quickly while still leaving enough processed samples.
@@ -78,7 +85,7 @@ if __name__ == "__main__":
     skip_frame = 500 if args.test else 10
     max_frames = 3000 if args.test else 0
     if args.test:
-        runs = [("cosine", "cosine", "training", True)]
+        runs = [("perturbance", "perturbance", "training", True)]
 
     for dataset in datasets:
         for mode, metric, condition, save_meta in runs:
@@ -93,4 +100,7 @@ if __name__ == "__main__":
                 checkpoint_dir=checkpoint_dir,
                 skip_frame=skip_frame,
                 max_frames=max_frames,
+                perturbance_step_num=0,
+                perturbance_step_size=1e-2,
+                embedding_type="vision+action",
             )

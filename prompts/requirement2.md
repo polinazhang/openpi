@@ -27,14 +27,36 @@ There should be another toggle `static_inference.py .. --embedding_type=list(str
 Also in this mode, there should be a toggle `static_inference.py .. --save_meta=True` means that latents should be saved: perturb_delta_vision_step_{step_idx}, which is default to False. Details are specified in the storage section in `prompts/two-conditions-spec.md`. 
 
 Save all the way to N instead of N-1.
-For the loss function, perturbance should optimize the same objective used in normal model training.
 
+### Loss Parity Requirement (Strict)
+
+For the perturbance mode, your implementation should match the original torch/jax PI0 loss semantics exactly:
+
+- Reference implementation: `src/openpi/models/pi0.py::compute_loss`
+- Loss definition to match: `mean((v_t - u_t)^2, axis=-1)` where `u_t = noise - actions`
+- Time/noise construction to match exactly:
+- `tau ~ Beta(1.5, 1.0) * 0.999 + 0.001`
+- `x_t = tau * noise + (1 - tau) * actions`
+
+Important clarification:
+- JAX and Torch are functionally equivalent in this repo for pi0.5 training objective.
+- JAX returns `[B, H]` then training takes global mean.
+- Torch forward may return unreduced `[B, H, D]`, but training takes global mean.
+- Therefore implementations in this milestone must preserve this functional equivalence and must not
+introduce a different objective.
+
+Implementation rule for new static/perturbance code:
+- Do not invent a new loss.
 
 ## Implementation
 
 You should create separate functions in class PI0Pytorch(nn.Module) src/openpi/models_pytorch/pi0_pytorch.py for static inference that must NOT interfere with any original training or inference functionalities in this codebase, just like compute_static_targets, the previous static inference implementation for cosine and edr.  Keep zero interference by making new methods self-contained and never called by normal forward/sample_actions. Functions for different modes should also be separate, especially because for cosine two conditions need to be done at once while others only one condition is done at a time. Only add necessary functions, don't delete old function blocks.
 
 Note that for the calculation of the perturbance mode there's a back propagation stage. Make sure to separate the math logic in prompts/perturbance-calculation-formalization.md into another function if possible so that the logic is clear.
+
+For perturbance optimization, use the strict PI0 loss tensor (`mean over action-dim only`) as the
+canonical loss definition; if a scalar is needed for backprop, only apply a final aggregate
+reduction after computing that canonical tensor.
 
 
 ## Storage
