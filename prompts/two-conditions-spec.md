@@ -39,7 +39,8 @@ The latents that should be saved as files are (use these as file names followed 
 - meta/u             (this should be the prediction target: u_t = noise - ground_truth_actions_from_demo)
 - meta/ctraining-v_{layer_idx}   [this should be the layer-wise predicted latents by the model starting from x_t(or in another notation, $A_t^0$) = ground truth action]
 - meta/cinference-v_{layer_idx}  [this should be the layer-wise predicted latents by the model starting from x_t(or in another notation, $A_t^0$) = noise]
-- final_layer_loss
+- ctraining_final_layer_loss
+- cinference_final_layer_loss
 - ctraining-cosine_{layer_idx}
 - cinference-cosine_{layer_idx}
 

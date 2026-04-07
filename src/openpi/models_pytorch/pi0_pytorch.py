@@ -602,10 +602,79 @@ class PI0Pytorch(nn.Module):
             "final_layer_loss": torch.stack(final_losses, dim=1),
         }
 
+    def _compute_static_vt_layers(self, state, prefix_pad_masks, past_key_values, x_t, tau):
+        """Run one static denoise step and return final/layer-wise projected velocities."""
+        final_vt, suffix_hidden_states, adarms_cond = self.denoise_step(
+            state,
+            prefix_pad_masks,
+            past_key_values,
+            x_t,
+            tau,
+            output_hidden_states=True,
+        )
+        if suffix_hidden_states is None:
+            raise RuntimeError("Action expert hidden states were not returned; cannot compute vt layers.")
+
+        vt_layers: dict[int, torch.Tensor] = {}
+        # Hidden states tuple includes the embedding output at index 0.
+        for layer_idx, hidden in enumerate(suffix_hidden_states[1:]):
+            chunk = hidden[:, -self.config.action_horizon :, :]
+            normed, _ = self.paligemma_with_expert.gemma_expert.model.norm(chunk, cond=adarms_cond)
+            vt_layer = self.action_out_proj(normed.to(dtype=torch.float32))
+            vt_layers[layer_idx] = vt_layer
+        return final_vt, dict(sorted(vt_layers.items()))
+
     @torch.no_grad()
     def compute_static_cosine_targets(self, observation, actions, *, noise=None, time=None, num_steps=10):
-        """Reserved for the two-condition cosine static pipeline."""
-        raise NotImplementedError("Cosine static mode is not implemented yet.")
+        """Static-only cosine targets for both conditions with shared noise."""
+        state, prefix_pad_masks, past_key_values = self._prepare_static_prefix_context(observation)
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        noise = noise.to(device=device, dtype=torch.float32)
+        if time is None:
+            time = self.sample_time(actions.shape[0], device)
+        time = time.to(device=device, dtype=torch.float32)
+
+        target = noise - actions
+
+        # condition-training: x_t = tau * noise + (1 - tau) * actions, one denoise step.
+        time_expanded = time[:, None, None]
+        x_t_training = time_expanded * noise + (1 - time_expanded) * actions
+        ctraining_final, ctraining_layers = self._compute_static_vt_layers(
+            state, prefix_pad_masks, past_key_values, x_t_training, time
+        )
+
+        # condition-inference: start from pure noise and run fixed Euler rollout.
+        dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
+        x_t_inference = noise
+        time_step = torch.tensor(1.0, dtype=torch.float32, device=device)
+        cinference_layer_steps: dict[int, list[torch.Tensor]] = {}
+        cinference_final_steps: list[torch.Tensor] = []
+        for _ in range(num_steps):
+            tau = time_step.expand(actions.shape[0])
+            final_vt, vt_layers = self._compute_static_vt_layers(
+                state, prefix_pad_masks, past_key_values, x_t_inference, tau
+            )
+            cinference_final_steps.append(final_vt)
+            for layer_idx, vt in vt_layers.items():
+                cinference_layer_steps.setdefault(layer_idx, []).append(vt)
+            x_t_inference = (x_t_inference + dt * final_vt).detach()
+            time_step = time_step + dt
+
+        cinference_layers = {
+            layer_idx: torch.stack(step_values, dim=1) for layer_idx, step_values in cinference_layer_steps.items()
+        }
+        cinference_final = torch.stack(cinference_final_steps, dim=1)
+
+        return {
+            "target": target,
+            "ctraining_vt_layers": ctraining_layers,
+            "cinference_vt_layers": dict(sorted(cinference_layers.items())),
+            "ctraining_final_prediction": ctraining_final,
+            "cinference_final_prediction": cinference_final,
+        }
 
     @torch.no_grad()
     def compute_static_targets(self, observation, actions, *, noise=None, time=None):
@@ -646,28 +715,12 @@ class PI0Pytorch(nn.Module):
         self._record_activation("extra:diffusion_noise", -1, noise)
 
         expanded_time = time.expand(state.shape[0])
-        final_vt, suffix_hidden_states, adarms_cond = self.denoise_step(
-            state,
-            prefix_pad_masks,
-            past_key_values,
-            x_t,
-            expanded_time,
-            output_hidden_states=True,
+        final_vt, vt_layers = self._compute_static_vt_layers(
+            state, prefix_pad_masks, past_key_values, x_t, expanded_time
         )
 
-        if suffix_hidden_states is None:
-            raise RuntimeError("Action expert hidden states were not returned; cannot compute vt layers.")
-
-        vt_layers: dict[int, torch.Tensor] = {}
-        # Hidden states tuple includes the embedding output at index 0.
-        for layer_idx, hidden in enumerate(suffix_hidden_states[1:]):
-            chunk = hidden[:, -self.config.action_horizon :, :]
-            normed, _ = self.paligemma_with_expert.gemma_expert.model.norm(chunk, cond=adarms_cond)
-            vt_layer = self.action_out_proj(normed.to(dtype=torch.float32))
-            vt_layers[layer_idx] = vt_layer
-
         return {
-            "vt_layers": dict(sorted(vt_layers.items())),
+            "vt_layers": vt_layers,
             "target": u_t,
             "final_prediction": final_vt,
         }

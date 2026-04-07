@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit static inference jobs for gradient (current milestone)."""
+"""Submit static inference jobs for cosine + gradient static metrics."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ def submit_job(
     mode: str,
     metric: str,
     condition: str,
+    save_meta: bool,
     checkpoint_dir: Path,
     skip_frame: int,
     max_frames: int,
@@ -36,7 +37,7 @@ def submit_job(
         "CHECKPOINT_DIR": str(checkpoint_dir),
         "METRIC": metric,
         "CONDITION": condition,
-        "SAVE_META": "True",
+        "SAVE_META": "True" if save_meta else "False",
         "SKIP_FRAME": str(skip_frame),
         "NUM_STEPS": "10",
         "MAX_FRAMES": str(max_frames),
@@ -66,20 +67,21 @@ if __name__ == "__main__":
         folder_name = "test_currentime"
         datasets = ["franka_on_top"]
 
-    # Gradient-first milestone:
-    # submit condition-training and condition-inference only.
     runs = [
-        ("gradient-training", "gradient", "training"),
-        ("gradient-inference", "gradient", "inference"),
+        ("cosine", "cosine", "training", False),
+        # ("gradient-training", "gradient", "training", True),
+        # ("gradient-inference", "gradient", "inference", True),
     ]
 
-    # Test mode should finish quickly while still leaving enough processed samples:
-    # at least ~5 processed inputs for training and therefore ~50 inference steps.
+    # Test mode should finish quickly while still leaving enough processed samples.
+    # With skip_frame=500 and max_frames=3000, franka_on_top keeps at least ~5 evaluated frames.
     skip_frame = 500 if args.test else 10
     max_frames = 3000 if args.test else 0
+    if args.test:
+        runs = [("cosine", "cosine", "training", True)]
 
     for dataset in datasets:
-        for mode, metric, condition in runs:
+        for mode, metric, condition, save_meta in runs:
             submit_job(
                 root_dir=root_dir,
                 folder_name=folder_name,
@@ -87,6 +89,7 @@ if __name__ == "__main__":
                 mode=mode,
                 metric=metric,
                 condition=condition,
+                save_meta=save_meta,
                 checkpoint_dir=checkpoint_dir,
                 skip_frame=skip_frame,
                 max_frames=max_frames,

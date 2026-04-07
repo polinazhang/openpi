@@ -235,6 +235,21 @@ def has_valid_action_chunk(raw_sample: dict) -> bool:
     return not bool(np.asarray(pad_mask, dtype=bool).any())
 
 
+def compute_cosine(vt: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    vt = vt.to(dtype=torch.float32)
+    target = target.to(dtype=torch.float32)
+    dot = torch.sum(vt * target, dim=-1)
+    vt_norm = torch.linalg.norm(vt, dim=-1)
+    target_norm = torch.linalg.norm(target, dim=-1)
+    cosine = dot / (vt_norm * target_norm + EPS)
+
+    # EDR calculation retained for future re-enable:
+    # scale = dot / (vt_norm.square() + EPS)
+    # scaled = scale.unsqueeze(-1) * vt
+    # edr = torch.linalg.norm(scaled - target, dim=-1)
+    return cosine
+
+
 @dataclass
 class GradientEpisodeBuffer:
     episode_index: int
@@ -255,6 +270,52 @@ class GradientEpisodeBuffer:
 
     def num_frames(self) -> int:
         return len(self.final_loss)
+
+
+@dataclass
+class CosineEpisodeBuffer:
+    episode_index: int
+    start_offset: int
+    ctraining_cosine: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
+    cinference_cosine: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
+    ctraining_final_loss: list[np.ndarray] = field(default_factory=list)
+    cinference_final_loss: list[np.ndarray] = field(default_factory=list)
+    meta_u: list[np.ndarray] = field(default_factory=list)
+    ctraining_v_meta: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
+    cinference_v_meta: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
+
+    def add_frame(
+        self,
+        *,
+        ctraining_cosine: dict[int, np.ndarray],
+        cinference_cosine: dict[int, np.ndarray],
+        ctraining_final_loss: np.ndarray,
+        cinference_final_loss: np.ndarray,
+        target_u: np.ndarray | None,
+        ctraining_v_layers: dict[int, np.ndarray] | None,
+        cinference_v_layers: dict[int, np.ndarray] | None,
+    ) -> None:
+        for layer_idx, values in ctraining_cosine.items():
+            self.ctraining_cosine[layer_idx].append(values)
+        for layer_idx, values in cinference_cosine.items():
+            self.cinference_cosine[layer_idx].append(values)
+        self.ctraining_final_loss.append(ctraining_final_loss)
+        self.cinference_final_loss.append(cinference_final_loss)
+
+        if target_u is not None:
+            self.meta_u.append(target_u)
+        if ctraining_v_layers is not None:
+            for layer_idx, values in ctraining_v_layers.items():
+                self.ctraining_v_meta[layer_idx].append(values)
+        if cinference_v_layers is not None:
+            for layer_idx, values in cinference_v_layers.items():
+                self.cinference_v_meta[layer_idx].append(values)
+
+    def has_data(self) -> bool:
+        return bool(self.ctraining_final_loss)
+
+    def num_frames(self) -> int:
+        return len(self.ctraining_final_loss)
 
 
 def finalize_gradient_episode(
@@ -293,6 +354,71 @@ def finalize_gradient_episode(
 
     final_loss_array = np.stack(buffer.final_loss, axis=0)
     _record_artifact("final_layer_loss", final_loss_array)
+
+    metadata_entries.append(
+        {
+            "trajectory_id": trajectory_id,
+            "source_episode_index": buffer.episode_index,
+            "episode_step_offset": buffer.start_offset,
+            "trajectory_rel_dir": rel_prefix,
+            "num_steps": buffer.num_frames(),
+            "artifacts": artifacts,
+            "artifact_shapes": artifact_shapes,
+            "artifact_lengths": artifact_lengths,
+            "artifact_spans": artifact_spans,
+        }
+    )
+    return trajectory_id + 1
+
+
+def finalize_cosine_episode(
+    buffer: CosineEpisodeBuffer,
+    trajectory_id: int,
+    out_root: Path,
+    offsets: Dict[str, int],
+    metadata_entries: list[dict],
+    *,
+    save_meta: bool,
+) -> int:
+    rel_prefix = f"{trajectory_id:06d}/npy-metadata"
+    traj_dir = out_root / f"{trajectory_id:06d}" / "npy-metadata"
+    traj_dir.mkdir(parents=True, exist_ok=True)
+
+    artifacts: dict[str, str] = {}
+    artifact_shapes: dict[str, list[int]] = {}
+    artifact_lengths: dict[str, int] = {}
+    artifact_spans: dict[str, dict[str, int]] = {}
+
+    def _record_artifact(name: str, array: np.ndarray):
+        nonlocal offsets, artifacts, artifact_shapes, artifact_lengths, artifact_spans
+        out_path = traj_dir / f"{name}.npy"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(out_path, array.astype(np.float16))
+        artifacts[name] = f"{rel_prefix}/{name}.npy"
+        artifact_shapes[name] = list(array.shape)
+        length = int(array.size)
+        artifact_lengths[name] = length
+        start = offsets.get(name, 0)
+        artifact_spans[name] = {"offset": start, "length": length}
+        offsets[name] = start + length
+
+    for layer_idx in sorted(buffer.ctraining_cosine.keys()):
+        ctraining_cos = np.stack(buffer.ctraining_cosine[layer_idx], axis=0)
+        cinference_cos = np.stack(buffer.cinference_cosine[layer_idx], axis=0)
+        _record_artifact(f"ctraining-cosine_{layer_idx:02d}", ctraining_cos)
+        _record_artifact(f"cinference-cosine_{layer_idx:02d}", cinference_cos)
+
+    _record_artifact("ctraining_final_layer_loss", np.stack(buffer.ctraining_final_loss, axis=0))
+    _record_artifact("cinference_final_layer_loss", np.stack(buffer.cinference_final_loss, axis=0))
+
+    if save_meta and buffer.meta_u:
+        _record_artifact("meta/u", np.stack(buffer.meta_u, axis=0))
+        for layer_idx in sorted(buffer.ctraining_v_meta.keys()):
+            _record_artifact(f"meta/ctraining-v_{layer_idx:02d}", np.stack(buffer.ctraining_v_meta[layer_idx], axis=0))
+            _record_artifact(
+                f"meta/cinference-v_{layer_idx:02d}",
+                np.stack(buffer.cinference_v_meta[layer_idx], axis=0),
+            )
 
     metadata_entries.append(
         {
@@ -412,6 +538,147 @@ def run_gradient_mode(
     )
 
 
+def run_cosine_mode(
+    args: argparse.Namespace,
+    model,
+    dataset,
+    transform,
+    output_dir: Path,
+) -> None:
+    metadata_entries: list[dict] = []
+    offsets: dict[str, int] = {}
+    trajectory_counter = 0
+    current_buffer: CosineEpisodeBuffer | None = None
+    current_episode = None
+    current_episode_step_offset = 0
+    step_chunk_limit = args.max_steps_per_trajectory if args.max_steps_per_trajectory > 0 else None
+    processed = 0
+
+    total_frames = len(dataset)
+    limit = total_frames if args.max_frames is None else min(args.max_frames, total_frames)
+    iterator = range(limit)
+    eval_total = (limit + max(args.skip_frame, 1) - 1) // max(args.skip_frame, 1)
+    eval_pbar = tqdm(total=eval_total, desc="Evaluated frames")
+
+    for global_idx in tqdm(iterator, desc="Processing frames"):
+        sample = dataset[global_idx]
+        episode_idx = int(sample["episode_index"].item())
+
+        if current_episode is None or episode_idx != current_episode:
+            if current_buffer and current_buffer.has_data():
+                trajectory_counter = finalize_cosine_episode(
+                    current_buffer,
+                    trajectory_counter,
+                    output_dir,
+                    offsets,
+                    metadata_entries,
+                    save_meta=args.save_meta,
+                )
+            current_episode_step_offset = 0
+            current_episode = episode_idx
+            current_buffer = CosineEpisodeBuffer(episode_index=episode_idx, start_offset=current_episode_step_offset)
+
+        if args.skip_frame > 1 and global_idx % args.skip_frame != 0:
+            continue
+
+        sample_for_transform = sample
+        if args.data_default_prompt is not None:
+            sample_for_transform = dict(sample)
+            sample_for_transform["task"] = np.asarray(args.data_default_prompt)
+            sample_for_transform["prompt"] = np.asarray(args.data_default_prompt)
+
+        transformed = transform(sample_for_transform)
+        observation = build_observation(transformed, args.device)
+        actions = _to_torch_tensor(transformed["actions"], args.device, dtype=torch.float32).unsqueeze(0)
+
+        result = model.compute_static_cosine_targets(
+            observation,
+            actions,
+            num_steps=args.num_steps,
+        )
+
+        target = result["target"].squeeze(0)
+        ctraining_final = result["ctraining_final_prediction"].squeeze(0)
+        cinference_final = result["cinference_final_prediction"].squeeze(0)
+        ctraining_vt_layers = {
+            layer_idx: layer_v.squeeze(0) for layer_idx, layer_v in result["ctraining_vt_layers"].items()
+        }
+        cinference_vt_layers = {
+            layer_idx: layer_v.squeeze(0) for layer_idx, layer_v in result["cinference_vt_layers"].items()
+        }
+
+        ctraining_cosine: dict[int, np.ndarray] = {}
+        cinference_cosine: dict[int, np.ndarray] = {}
+        for layer_idx, ctraining_v in ctraining_vt_layers.items():
+            cinference_v = cinference_vt_layers[layer_idx]
+            ctraining_cosine[layer_idx] = compute_cosine(ctraining_v, target).detach().cpu().numpy()
+            cinference_cosine[layer_idx] = compute_cosine(cinference_v, target.unsqueeze(0)).detach().cpu().numpy()
+
+        ctraining_final_loss = torch.linalg.norm(ctraining_final - target, dim=-1).detach().cpu().numpy()
+        cinference_final_loss = torch.linalg.norm(cinference_final - target.unsqueeze(0), dim=-1).detach().cpu().numpy()
+
+        meta_u = target.detach().cpu().numpy() if args.save_meta else None
+        meta_ctraining_v = (
+            {layer_idx: layer_v.detach().cpu().numpy() for layer_idx, layer_v in ctraining_vt_layers.items()}
+            if args.save_meta
+            else None
+        )
+        meta_cinference_v = (
+            {layer_idx: layer_v.detach().cpu().numpy() for layer_idx, layer_v in cinference_vt_layers.items()}
+            if args.save_meta
+            else None
+        )
+
+        if current_buffer is not None:
+            current_buffer.add_frame(
+                ctraining_cosine=ctraining_cosine,
+                cinference_cosine=cinference_cosine,
+                ctraining_final_loss=ctraining_final_loss,
+                cinference_final_loss=cinference_final_loss,
+                target_u=meta_u,
+                ctraining_v_layers=meta_ctraining_v,
+                cinference_v_layers=meta_cinference_v,
+            )
+            if step_chunk_limit and current_buffer.num_frames() >= step_chunk_limit:
+                next_offset = current_episode_step_offset + current_buffer.num_frames()
+                trajectory_counter = finalize_cosine_episode(
+                    current_buffer,
+                    trajectory_counter,
+                    output_dir,
+                    offsets,
+                    metadata_entries,
+                    save_meta=args.save_meta,
+                )
+                current_episode_step_offset = next_offset
+                current_buffer = CosineEpisodeBuffer(
+                    episode_index=episode_idx,
+                    start_offset=current_episode_step_offset,
+                )
+
+        processed += 1
+        eval_pbar.update(1)
+
+    if current_buffer and current_buffer.has_data():
+        trajectory_counter = finalize_cosine_episode(
+            current_buffer,
+            trajectory_counter,
+            output_dir,
+            offsets,
+            metadata_entries,
+            save_meta=args.save_meta,
+        )
+
+    eval_pbar.close()
+    metadata_path = output_dir / "metadata.json"
+    with metadata_path.open("w", encoding="utf-8") as handle:
+        json.dump(metadata_entries, handle, indent=2)
+
+    print(f"Wrote metadata for {trajectory_counter} trajectories to {metadata_path}")
+    print(
+        f"Recorded {processed} frames (skip_frame={args.skip_frame}, metric=cosine, save_meta={args.save_meta})."
+    )
+
+
 def main() -> None:
     args = parse_args()
     if args.metric == "":
@@ -451,10 +718,8 @@ def main() -> None:
         return
 
     if args.metric == "cosine":
-        # EDR calculation retained for future re-enable:
-        # scale = dot(v_t, u_t) / (||v_t||^2 + eps)
-        # edr = ||scale * v_t - u_t||_2
-        raise NotImplementedError("Cosine mode will be implemented in a later milestone.")
+        run_cosine_mode(args, model, dataset, transform, output_dir)
+        return
 
     raise ValueError(f"Unsupported metric mode: {args.metric}")
 
