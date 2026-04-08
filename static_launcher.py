@@ -68,20 +68,22 @@ if __name__ == "__main__":
         "franka_object_plus",
         "franka_object_two",
         "franka_on_top",
+        "franka_object_action_ood",
+        "franka_object_vision_ood",
     ]
     if args.test:
         folder_name = "test_currentime"
-        datasets = ["franka_on_top"]
+        datasets = ["franka_object_action_ood"]
 
     runs = [
-        ("cosine", "cosine", "training", False),
-        ("gradient-training", "gradient", "training", False),
-        ("gradient-inference", "gradient", "inference", False),
+        # ("cosine", "cosine", "training", True),
+        # ("gradient-training", "gradient", "training", False),
+        # ("gradient-inference", "gradient", "inference", False),
         ("perturbance", "perturbance", "training", True),
     ]
 
     # Test mode should finish quickly while still leaving enough processed samples.
-    # With skip_frame=500 and max_frames=3000, franka_on_top keeps at least ~5 evaluated frames.
+    # With skip_frame=500 and max_frames=3000, selected OOD datasets keep at least ~5 evaluated frames.
     skip_frame = 500 if args.test else 10
     max_frames = 3000 if args.test else 0
     if args.test:
@@ -102,5 +104,7 @@ if __name__ == "__main__":
                 max_frames=max_frames,
                 perturbance_step_num=0,
                 perturbance_step_size=1e-2,
-                embedding_type="vision+action",
+                # embedding_type="time",
+                # embedding_type="vision+action",
+                embedding_type="vision+action+time",
             )

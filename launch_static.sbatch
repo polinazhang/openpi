@@ -22,7 +22,7 @@ export TRANSFORMERS_CACHE=/coc/testnvme/xzhang3205/huggingface
 export OPENPI_DATA_HOME=/coc/testnvme/xzhang3205/openpi/.cache
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-DATASET="${DATASET:-franka_object}"
+DATASET="${DATASET:-franka_object_action_ood}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000}"
 METRIC="${METRIC:-gradient}"
@@ -32,6 +32,9 @@ SKIP_FRAME="${SKIP_FRAME:-10}"
 NUM_STEPS="${NUM_STEPS:-10}"
 MAX_FRAMES="${MAX_FRAMES:-0}"
 VIDEO_BACKEND="${VIDEO_BACKEND:-pyav}"
+PERTURBANCE_STEP_NUM="${PERTURBANCE_STEP_NUM:-0}"
+PERTURBANCE_STEP_SIZE="${PERTURBANCE_STEP_SIZE:-1e-2}"
+EMBEDDING_TYPE="${EMBEDDING_TYPE:-vision+action}"
 
 mkdir -p "${OUTPUT_ROOT}"
 
@@ -52,10 +55,12 @@ for candidates in [
 PY
 
 declare -A DATASET_PROMPTS=(
-  [franka_object]=""
-  [franka_object_plus]=""
-  [franka_object_two]="place the pink block in the bin, then place the blue block in the bin"
-  [franka_on_top]="place the pink block on top of the blue block"
+  # [franka_object]=""
+  # [franka_object_plus]=""
+  # [franka_object_two]="place the pink block in the bin, then place the blue block in the bin"
+  # [franka_on_top]="place the pink block on top of the blue block"
+  [franka_object_action_ood]=""
+  [franka_object_vision_ood]=""
 )
 
 echo "=== Running static metrics dataset=${DATASET} metric=${METRIC} condition=${CONDITION} ==="
@@ -68,6 +73,9 @@ cmd=(
   --save_meta="${SAVE_META}"
   --num-steps "${NUM_STEPS}"
   --skip-frame "${SKIP_FRAME}"
+  --perturbance_step_num "${PERTURBANCE_STEP_NUM}"
+  --perturbance_step_size "${PERTURBANCE_STEP_SIZE}"
+  --embedding_type "${EMBEDDING_TYPE}"
   --video-backend "${VIDEO_BACKEND}"
   --output-root "${OUTPUT_ROOT}"
   --checkpoint-dir "${CHECKPOINT_DIR}"

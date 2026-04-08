@@ -68,6 +68,16 @@ DATASETS: dict[str, dict[str, str]] = {
         "path": "/coc/testnvme/xzhang3205/lerobot/franka_on_top",
         "config": "pi05_franka_object",
     },
+    "franka_object_action_ood": {
+        "repo": "franka_object_action_ood",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_action_ood",
+        "config": "pi05_franka_object",
+    },
+    "franka_object_vision_ood": {
+        "repo": "franka_object_vision_ood",
+        "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_vision_ood",
+        "config": "pi05_franka_object",
+    },
 }
 
 DEFAULT_OUTPUT_ROOT = Path("/coc/testnvme/xzhang3205/static")

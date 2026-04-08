@@ -65,3 +65,17 @@ Take vision embedding as the example here, which could be swapped with action / 
 - meta/perturb_delta_vision_step_{step_idx}  [this should be the full perturbation vector trajectory $\delta_v^{(0)}$,...,$\delta_v^{(N)}$ from N perturbation steps on the vision embedding, where $\delta_v^{(0)}$=0]
 
 The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
+
+**perturbance-noise**
+
+
+Note that here diffusion_step_idx refers to the step in condition-inference, default to the pi model default number. (The user believe this number is 10, cross check with the code, if you discover a discrepancy anytime, pause immediately and raise the issue to the user.)
+
+It is **not** the perturbation step defined in approach 2 inside `prompts/perturbance-calculation-formalization.md` (discarded for this mode). The latents that should be saved as files are (use these as file names followed by .npy as well):
+
+Take vision embedding as the example here, which could be swapped with language / time / state embedding as defined in the formulation file. For those, just replace "vision" with language / time / state. 
+
+- gradnorm_vision_step_{diffusion_step_idx}  [this should be the local sensitivity score $||\nabla_{h_v}L^{(n)}||_2$, where n is the step idx]
+- final_layer_loss_vision_step_{diffusion_step_idx}  [this should be the full loss trajectory across diffusion steps
+
+The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
