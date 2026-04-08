@@ -84,6 +84,7 @@ DEFAULT_OUTPUT_ROOT = Path("/coc/testnvme/xzhang3205/static")
 BASE_CHECKPOINT_URI = "/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000"
 EPS = 1e-8
 VALID_EMBEDDING_TYPES = {"vision", "action", "state", "time", "language"}
+PERTURBANCE_NOISE_EMBEDDING_TYPES = {"vision", "state", "time", "language"}
 
 
 def parse_bool(value: str) -> bool:
@@ -124,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--metric",
-        choices=["", "cosine", "gradient", "perturbance"],
+        choices=["", "cosine", "gradient", "perturbance", "perturbance-noise"],
         default="gradient",
         help="Metric mode. Empty maps to gradient for backward-compatibility.",
     )
@@ -155,10 +156,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--embedding_type",
         nargs="+",
-        default=["vision", "action"],
+        default=None,
         help=(
-            "Embedding types for perturbance (space/comma separated). "
-            "Allowed: vision action state time language."
+            "Embedding types for perturbance/perturbance-noise (space/comma separated). "
+            "Allowed set parsed globally: vision action state time language."
         ),
     )
     parser.add_argument(
@@ -408,6 +409,36 @@ class PerturbanceEpisodeBuffer:
         return self.frame_count
 
 
+@dataclass
+class PerturbanceNoiseEpisodeBuffer:
+    episode_index: int
+    start_offset: int
+    gradnorms: dict[str, dict[int, list[np.ndarray]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(list))
+    )
+    final_layer_losses: dict[str, dict[int, list[np.ndarray]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(list))
+    )
+    frame_count: int = 0
+
+    def add_frame(
+        self,
+        embedding_outputs: dict[str, dict[str, list[np.ndarray]]],
+    ) -> None:
+        for embedding_type, output in embedding_outputs.items():
+            for step_idx, gradnorm in enumerate(output["gradnorm_steps"]):
+                self.gradnorms[embedding_type][step_idx].append(gradnorm)
+            for step_idx, loss in enumerate(output["final_layer_loss_steps"]):
+                self.final_layer_losses[embedding_type][step_idx].append(loss)
+        self.frame_count += 1
+
+    def has_data(self) -> bool:
+        return self.frame_count > 0
+
+    def num_frames(self) -> int:
+        return self.frame_count
+
+
 def finalize_gradient_episode(
     buffer: GradientEpisodeBuffer,
     trajectory_id: int,
@@ -572,6 +603,61 @@ def finalize_perturbance_episode(
             for step_idx in sorted(buffer.deltas[embedding_type].keys()):
                 delta_array = np.stack(buffer.deltas[embedding_type][step_idx], axis=0)
                 _record_artifact(f"meta/perturb_delta_{embedding_type}_step_{step_idx}", delta_array)
+
+    metadata_entries.append(
+        {
+            "trajectory_id": trajectory_id,
+            "source_episode_index": buffer.episode_index,
+            "episode_step_offset": buffer.start_offset,
+            "trajectory_rel_dir": rel_prefix,
+            "num_steps": buffer.num_frames(),
+            "artifacts": artifacts,
+            "artifact_shapes": artifact_shapes,
+            "artifact_lengths": artifact_lengths,
+            "artifact_spans": artifact_spans,
+        }
+    )
+    return trajectory_id + 1
+
+
+def finalize_perturbance_noise_episode(
+    buffer: PerturbanceNoiseEpisodeBuffer,
+    trajectory_id: int,
+    out_root: Path,
+    offsets: Dict[str, int],
+    metadata_entries: list[dict],
+) -> int:
+    rel_prefix = f"{trajectory_id:06d}/npy-metadata"
+    traj_dir = out_root / f"{trajectory_id:06d}" / "npy-metadata"
+    traj_dir.mkdir(parents=True, exist_ok=True)
+
+    artifacts: dict[str, str] = {}
+    artifact_shapes: dict[str, list[int]] = {}
+    artifact_lengths: dict[str, int] = {}
+    artifact_spans: dict[str, dict[str, int]] = {}
+
+    def _record_artifact(name: str, array: np.ndarray):
+        nonlocal offsets, artifacts, artifact_shapes, artifact_lengths, artifact_spans
+        out_path = traj_dir / f"{name}.npy"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(out_path, array.astype(np.float16))
+        artifacts[name] = f"{rel_prefix}/{name}.npy"
+        artifact_shapes[name] = list(array.shape)
+        length = int(array.size)
+        artifact_lengths[name] = length
+        start = offsets.get(name, 0)
+        artifact_spans[name] = {"offset": start, "length": length}
+        offsets[name] = start + length
+
+    for embedding_type in sorted(buffer.gradnorms.keys()):
+        for diffusion_step_idx in sorted(buffer.gradnorms[embedding_type].keys()):
+            gradnorm_array = np.stack(buffer.gradnorms[embedding_type][diffusion_step_idx], axis=0)
+            _record_artifact(f"gradnorm_{embedding_type}_step_{diffusion_step_idx}", gradnorm_array)
+
+    for embedding_type in sorted(buffer.final_layer_losses.keys()):
+        for diffusion_step_idx in sorted(buffer.final_layer_losses[embedding_type].keys()):
+            loss_array = np.stack(buffer.final_layer_losses[embedding_type][diffusion_step_idx], axis=0)
+            _record_artifact(f"final_layer_loss_{embedding_type}_step_{diffusion_step_idx}", loss_array)
 
     metadata_entries.append(
         {
@@ -966,19 +1052,162 @@ def run_perturbance_mode(
     )
 
 
+def run_perturbance_noise_mode(
+    args: argparse.Namespace,
+    model,
+    dataset,
+    transform,
+    output_dir: Path,
+) -> None:
+    metadata_entries: list[dict] = []
+    offsets: dict[str, int] = {}
+    trajectory_counter = 0
+    current_buffer: PerturbanceNoiseEpisodeBuffer | None = None
+    current_episode = None
+    current_episode_step_offset = 0
+    step_chunk_limit = args.max_steps_per_trajectory if args.max_steps_per_trajectory > 0 else None
+    processed = 0
+
+    total_frames = len(dataset)
+    limit = total_frames if args.max_frames is None else min(args.max_frames, total_frames)
+    iterator = range(limit)
+    eval_total = (limit + max(args.skip_frame, 1) - 1) // max(args.skip_frame, 1)
+    eval_pbar = tqdm(total=eval_total, desc="Evaluated frames")
+
+    for global_idx in tqdm(iterator, desc="Processing frames"):
+        sample = dataset[global_idx]
+        episode_idx = int(sample["episode_index"].item())
+
+        if current_episode is None or episode_idx != current_episode:
+            if current_buffer and current_buffer.has_data():
+                trajectory_counter = finalize_perturbance_noise_episode(
+                    current_buffer,
+                    trajectory_counter,
+                    output_dir,
+                    offsets,
+                    metadata_entries,
+                )
+            current_episode_step_offset = 0
+            current_episode = episode_idx
+            current_buffer = PerturbanceNoiseEpisodeBuffer(
+                episode_index=episode_idx,
+                start_offset=current_episode_step_offset,
+            )
+
+        if args.skip_frame > 1 and global_idx % args.skip_frame != 0:
+            continue
+        if not has_valid_action_chunk(sample):
+            continue
+
+        sample_for_transform = sample
+        if args.data_default_prompt is not None:
+            sample_for_transform = dict(sample)
+            sample_for_transform["task"] = np.asarray(args.data_default_prompt)
+            sample_for_transform["prompt"] = np.asarray(args.data_default_prompt)
+
+        transformed = transform(sample_for_transform)
+        observation = build_observation(transformed, args.device)
+        actions = _to_torch_tensor(transformed["actions"], args.device, dtype=torch.float32).unsqueeze(0)
+        noise = model.sample_noise(actions.shape, actions.device)
+
+        result = model.compute_static_perturbance_noise_targets(
+            observation,
+            actions,
+            noise=noise,
+            embedding_types=args.embedding_type,
+            num_steps=args.num_steps,
+            step_num=args.perturbance_step_num,
+            step_size=args.perturbance_step_size,
+        )
+
+        embedding_outputs: dict[str, dict[str, list[np.ndarray]]] = {}
+        for embedding_type, embedding_result in result["embeddings"].items():
+            embedding_outputs[embedding_type] = {
+                "gradnorm_steps": [
+                    step.squeeze(0).detach().to(dtype=torch.float32).cpu().numpy()
+                    for step in embedding_result["gradnorm_steps"]
+                ],
+                "final_layer_loss_steps": [
+                    step.squeeze(0).detach().to(dtype=torch.float32).cpu().numpy()
+                    for step in embedding_result["final_layer_loss_steps"]
+                ],
+            }
+
+        if current_buffer is not None:
+            current_buffer.add_frame(embedding_outputs)
+            if step_chunk_limit and current_buffer.num_frames() >= step_chunk_limit:
+                next_offset = current_episode_step_offset + current_buffer.num_frames()
+                trajectory_counter = finalize_perturbance_noise_episode(
+                    current_buffer,
+                    trajectory_counter,
+                    output_dir,
+                    offsets,
+                    metadata_entries,
+                )
+                current_episode_step_offset = next_offset
+                current_buffer = PerturbanceNoiseEpisodeBuffer(
+                    episode_index=episode_idx,
+                    start_offset=current_episode_step_offset,
+                )
+
+        processed += 1
+        eval_pbar.update(1)
+
+    if current_buffer and current_buffer.has_data():
+        trajectory_counter = finalize_perturbance_noise_episode(
+            current_buffer,
+            trajectory_counter,
+            output_dir,
+            offsets,
+            metadata_entries,
+        )
+
+    eval_pbar.close()
+    metadata_path = output_dir / "metadata.json"
+    with metadata_path.open("w", encoding="utf-8") as handle:
+        json.dump(metadata_entries, handle, indent=2)
+
+    print(f"Wrote metadata for {trajectory_counter} trajectories to {metadata_path}")
+    print(
+        "Recorded "
+        f"{processed} frames (skip_frame={args.skip_frame}, metric=perturbance-noise, "
+        f"num_steps={args.num_steps}, embedding_type={args.embedding_type})."
+    )
+
+
 def main() -> None:
     args = parse_args()
-    args.embedding_type = parse_embedding_types(args.embedding_type)
+    embedding_type_was_provided = args.embedding_type is not None
+    if embedding_type_was_provided:
+        args.embedding_type = parse_embedding_types(args.embedding_type)
     if args.metric == "":
         args.metric = "gradient"
+    if not embedding_type_was_provided:
+        if args.metric == "perturbance-noise":
+            args.embedding_type = ["vision"]
+        else:
+            args.embedding_type = ["vision", "action"]
     if args.metric == "gradient" and args.save_meta:
         print("Ignoring --save_meta because it only applies to metric=cosine or metric=perturbance.")
-    if args.metric != "perturbance" and (
+    if args.metric == "perturbance-noise" and args.save_meta:
+        print("Ignoring --save_meta because metric=perturbance-noise stores no meta deltas.")
+    if args.metric == "perturbance-noise":
+        invalid = sorted(set(args.embedding_type) - PERTURBANCE_NOISE_EMBEDDING_TYPES)
+        if invalid:
+            raise ValueError(
+                "metric=perturbance-noise only supports embedding_type in "
+                f"{sorted(PERTURBANCE_NOISE_EMBEDDING_TYPES)}; got invalid={invalid}"
+            )
+    if args.metric not in {"perturbance", "perturbance-noise"} and (
         args.perturbance_step_num != 0
         or abs(args.perturbance_step_size - 1e-2) > 0.0
-        or args.embedding_type != ["vision", "action"]
+        or embedding_type_was_provided
     ):
-        print("Ignoring perturbance-specific flags because metric is not perturbance.")
+        print("Ignoring perturbance-specific flags because metric is not perturbance/perturbance-noise.")
+    if args.metric == "perturbance-noise" and (
+        args.perturbance_step_num != 0 or abs(args.perturbance_step_size - 1e-2) > 0.0
+    ):
+        print("metric=perturbance-noise computes first gradient only; step_num/step_size are accepted but ignored.")
 
     dataset_cfg = DATASETS[args.dataset]
     output_dir = args.output_root.expanduser() / args.dataset
@@ -1016,6 +1245,9 @@ def main() -> None:
         return
     if args.metric == "perturbance":
         run_perturbance_mode(args, model, dataset, transform, output_dir)
+        return
+    if args.metric == "perturbance-noise":
+        run_perturbance_noise_mode(args, model, dataset, transform, output_dir)
         return
 
     raise ValueError(f"Unsupported metric mode: {args.metric}")

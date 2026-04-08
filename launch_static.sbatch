@@ -23,18 +23,23 @@ export OPENPI_DATA_HOME=/coc/testnvme/xzhang3205/openpi/.cache
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
 DATASET="${DATASET:-franka_object_action_ood}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
+# OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/perturbance-noise}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000}"
-METRIC="${METRIC:-gradient}"
-CONDITION="${CONDITION:-training}"
-SAVE_META="${SAVE_META:-True}"
+# METRIC="${METRIC:-gradient}"
+METRIC="${METRIC:-perturbance-noise}"
+# CONDITION="${CONDITION:-training}"
+CONDITION="${CONDITION:-inference}"
+# SAVE_META="${SAVE_META:-True}"
+SAVE_META="${SAVE_META:-False}"
 SKIP_FRAME="${SKIP_FRAME:-10}"
 NUM_STEPS="${NUM_STEPS:-10}"
 MAX_FRAMES="${MAX_FRAMES:-0}"
 VIDEO_BACKEND="${VIDEO_BACKEND:-pyav}"
 PERTURBANCE_STEP_NUM="${PERTURBANCE_STEP_NUM:-0}"
 PERTURBANCE_STEP_SIZE="${PERTURBANCE_STEP_SIZE:-1e-2}"
-EMBEDDING_TYPE="${EMBEDDING_TYPE:-vision+action}"
+# EMBEDDING_TYPE="${EMBEDDING_TYPE:-vision+action}"
+EMBEDDING_TYPE="${EMBEDDING_TYPE:-vision}"
 
 mkdir -p "${OUTPUT_ROOT}"
 

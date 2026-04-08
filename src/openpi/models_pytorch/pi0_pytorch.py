@@ -976,6 +976,160 @@ class PI0Pytorch(nn.Module):
             "embeddings": embedding_results,
         }
 
+    def _compute_static_perturbance_noise_single_embedding(
+        self,
+        embedding_type,
+        prefix_pack,
+        suffix_pack,
+        u_t,
+    ):
+        """Compute only first-order perturbance signal (N=0) for one embedding."""
+        prefix_base = prefix_pack["prefix_embs"]
+        suffix_base = suffix_pack["suffix_embs"]
+        base_adarms = suffix_pack["adarms_cond"]
+        delta_target = None
+        is_noop_embedding = False
+
+        if embedding_type == "vision":
+            delta_target = prefix_base[:, prefix_pack["vision_slice"], :]
+        elif embedding_type == "language":
+            delta_target = prefix_base[:, prefix_pack["language_slice"], :]
+        elif embedding_type == "state":
+            if suffix_pack["state_slice"] is None:
+                is_noop_embedding = True
+                delta_target = torch.zeros(
+                    (u_t.shape[0], 1, suffix_base.shape[-1]),
+                    dtype=suffix_base.dtype,
+                    device=suffix_base.device,
+                )
+            else:
+                delta_target = suffix_base[:, suffix_pack["state_slice"], :]
+        elif embedding_type == "time":
+            if suffix_pack["time_cond"] is None:
+                is_noop_embedding = True
+                delta_target = torch.zeros(
+                    (u_t.shape[0], suffix_base.shape[-1]),
+                    dtype=suffix_base.dtype,
+                    device=suffix_base.device,
+                )
+            else:
+                delta_target = suffix_pack["time_cond"]
+        else:
+            raise ValueError(f"Unsupported embedding_type for perturbance-noise: {embedding_type}")
+
+        delta = torch.zeros_like(delta_target).detach().requires_grad_(True)
+        prefix_embs = prefix_base
+        suffix_embs = suffix_base
+        adarms_cond = base_adarms
+
+        if embedding_type == "vision":
+            prefix_embs = prefix_base.clone()
+            prefix_embs[:, prefix_pack["vision_slice"], :] = prefix_embs[:, prefix_pack["vision_slice"], :] + delta
+        elif embedding_type == "language":
+            prefix_embs = prefix_base.clone()
+            prefix_embs[:, prefix_pack["language_slice"], :] = prefix_embs[:, prefix_pack["language_slice"], :] + delta
+        elif embedding_type == "state":
+            suffix_embs = suffix_base.clone()
+            if suffix_pack["state_slice"] is not None:
+                suffix_embs[:, suffix_pack["state_slice"], :] = suffix_embs[:, suffix_pack["state_slice"], :] + delta
+        elif embedding_type == "time":
+            if base_adarms is not None:
+                adarms_cond = base_adarms + delta
+
+        loss_tensor, _ = self._compute_static_pi0_loss_tensor(
+            prefix_embs,
+            prefix_pack["prefix_pad_masks"],
+            prefix_pack["prefix_att_masks"],
+            suffix_embs,
+            suffix_pack["suffix_pad_masks"],
+            suffix_pack["suffix_att_masks"],
+            adarms_cond,
+            u_t,
+        )
+        scalar_loss = torch.mean(loss_tensor)
+        grad = torch.autograd.grad(
+            scalar_loss,
+            delta,
+            retain_graph=False,
+            create_graph=False,
+            allow_unused=True,
+        )[0]
+        if grad is None or is_noop_embedding:
+            grad = torch.zeros_like(delta)
+        gradnorm = torch.linalg.vector_norm(grad.reshape(grad.shape[0], -1), dim=1)
+        return {
+            "gradnorm": gradnorm.detach(),
+            "final_layer_loss": loss_tensor.detach(),
+        }
+
+    def compute_static_perturbance_noise_targets(
+        self,
+        observation,
+        actions,
+        *,
+        embedding_types,
+        num_steps=10,
+        step_num=0,
+        step_size=1e-2,
+        noise=None,
+    ):
+        """Static-only perturbance-noise analysis under condition-inference."""
+        del step_num, step_size  # Reserved CLI toggles; approach-2 descent is intentionally disabled in this mode.
+        if num_steps <= 0:
+            raise ValueError(f"num_steps must be > 0, got {num_steps}")
+
+        state, prefix_pad_masks, past_key_values = self._prepare_static_prefix_context(observation)
+        images, img_masks, lang_tokens, lang_masks, _ = self._preprocess_observation(observation, train=False)
+        device = state.device
+        actions = actions.to(device=device, dtype=torch.float32)
+        if noise is None:
+            noise = self.sample_noise(actions.shape, device)
+        noise = noise.to(device=device, dtype=torch.float32)
+        u_t = noise - actions
+
+        prefix_pack = self._build_static_prefix_with_slices(images, img_masks, lang_tokens, lang_masks)
+        x_t = noise.detach()
+        time = torch.tensor(1.0, dtype=torch.float32, device=device)
+        dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
+
+        embedding_results = {
+            embedding_type: {
+                "gradnorm_steps": [],
+                "final_layer_loss_steps": [],
+                "tau_steps": [],
+            }
+            for embedding_type in embedding_types
+        }
+
+        for _ in range(num_steps):
+            tau = time.expand(actions.shape[0])
+            suffix_pack = self._build_static_suffix_with_slices(state, x_t, tau)
+            for embedding_type in embedding_types:
+                output = self._compute_static_perturbance_noise_single_embedding(
+                    embedding_type,
+                    prefix_pack,
+                    suffix_pack,
+                    u_t,
+                )
+                embedding_results[embedding_type]["gradnorm_steps"].append(output["gradnorm"])
+                embedding_results[embedding_type]["final_layer_loss_steps"].append(output["final_layer_loss"])
+                embedding_results[embedding_type]["tau_steps"].append(tau.detach())
+
+            with torch.no_grad():
+                v_t = self.denoise_step(
+                    state,
+                    prefix_pad_masks,
+                    past_key_values,
+                    x_t,
+                    tau,
+                )
+            x_t = (x_t + dt * v_t).detach()
+            time = time + dt
+
+        return {
+            "embeddings": embedding_results,
+        }
+
     @torch.no_grad()
     def compute_static_targets(self, observation, actions, *, noise=None, time=None):
         """Run a teacher-forced pass that returns vt tensors for every layer.

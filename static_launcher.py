@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit static inference jobs for cosine + gradient + perturbance static metrics."""
+"""Submit static inference jobs for perturbance-noise static metrics."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def submit_job(
     max_frames: int,
     perturbance_step_num: int = 0,
     perturbance_step_size: float = 1e-2,
-    embedding_type: str = "vision+action",
+    embedding_type: str = "vision",
 ) -> None:
     output_root = Path("/coc/testnvme/xzhang3205/static") / folder_name / dataset / mode
     output_root.mkdir(parents=True, exist_ok=True)
@@ -79,15 +79,19 @@ if __name__ == "__main__":
         # ("cosine", "cosine", "training", True),
         # ("gradient-training", "gradient", "training", False),
         # ("gradient-inference", "gradient", "inference", False),
-        ("perturbance", "perturbance", "training", True),
+        # ("perturbance", "perturbance", "training", True),
+        ("perturbance-noise", "perturbance-noise", "inference", False),
     ]
 
     # Test mode should finish quickly while still leaving enough processed samples.
-    # With skip_frame=500 and max_frames=3000, selected OOD datasets keep at least ~5 evaluated frames.
+    # With skip_frame=200 and max_frames=1200, runs keep at least ~5 evaluated frames.
     skip_frame = 500 if args.test else 10
     max_frames = 3000 if args.test else 0
     if args.test:
-        runs = [("perturbance", "perturbance", "training", True)]
+        datasets = ["franka_on_top"]
+        skip_frame = 200
+        max_frames = 1200
+        runs = [("perturbance-noise", "perturbance-noise", "inference", False)]
 
     for dataset in datasets:
         for mode, metric, condition, save_meta in runs:
@@ -106,5 +110,6 @@ if __name__ == "__main__":
                 perturbance_step_size=1e-2,
                 # embedding_type="time",
                 # embedding_type="vision+action",
-                embedding_type="vision+action+time",
+                # embedding_type="vision+action+time",
+                embedding_type="vision",
             )
