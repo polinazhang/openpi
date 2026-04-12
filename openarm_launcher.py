@@ -6,9 +6,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-ROOT_DIR = Path("/coc/testnvme/xzhang3205/openpi")
-RESULT_DIR = Path("/coc/testnvme/xzhang3205/static/openarm_full")
-CHECKPOINT_DIR = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
+ROOT_DIR = Path("/work/nvme/bfbo/xzhang42/openpi")
+RESULT_DIR = Path("/work/hdd/bfbo/xzhang42/static/openarm_full")
+CHECKPOINT_DIR = Path("/work/nvme/bfbo/xzhang42/.cache/openpi/openpi-assets/checkpoints/pi05_libero_pytorch")
 SKIP_FRAME = 10
 MAX_FRAMES = 0
 NUM_STEPS = 10
