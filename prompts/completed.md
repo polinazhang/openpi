@@ -30,7 +30,32 @@ Also in this mode, there should be a toggle `static_inference.py .. --save_meta=
 
 Save all the way to N instead of N-1.
 
-### Loss Parity Requirement (Strict)
+
+### D. `--metric="perturbance-noise"`:
+only condition-inference should be calculated. neglect condition-training for this mode. 
+
+Set the default step number to 0 (so that only N=0 is calculated; step_size should not be essential for calculation at this point). There should be two toggles `static_inference.py .. --perturbance_step_num=N, --perturbance_step_size=1e-2` for this mode (should be ignored for other modes).
+
+There should be another toggle `static_inference.py .. --embedding_type=list(str)`, which is default to `["vision"]` but could take any sublist of `["vision", "state", "time", "language"]`. This should decide the perturbation on which embedding(s) are calculated. Disregard this flag for other modes. For all specified embedding types, respective results should be saved as different files in the same folder following the storage convention.
+
+
+### Perturbance Noise Formulation Details
+Mostly follow the same prompts/perturbance-calculation-formalization.md, but two differences (1) the model should calculate all 10 inference steps with pure noise (condition-inference) instead of 1 step with randomly sampled time and noise deducted by ground truth action, (2) the model should calculate only the first gradient (approach 1) and stop the gradient descent steps (approach 2) Therefore, the refined formulation is as follows:
+
+
+Let the vision-language-action model be denoted by
+
+$$
+\hat{A}^0 = \Phi_\theta(A_t^\tau, h_v, h_\ell, h_s, h_t),
+$$
+
+The noisy action latent $A_t^\tau$ starts from noise and follows the update convention 
+$$
+A_t^{\tau-\Delta} = A_t^\tau - \Delta \,\mathbf{v} \left(A_t^\tau, o_t, \tau\right)
+$$
+Each step recomputes a one-step surrogate of the final sample. Think of it as computing 0.9->0, 0.8->0, 0.7->0. At inference step k, $A_t^\tau$ is the current rollout state carried from step k-1 (initialized only once at $A_t^1=\epsilon$).
+
+## Loss Parity Requirement (Strict)
 
 For the perturbance mode, your implementation should match the original torch/jax PI0 loss semantics exactly:
 
