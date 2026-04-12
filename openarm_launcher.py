@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT_DIR = Path("/work/nvme/bfbo/xzhang42/openpi")
 RESULT_DIR = Path("/work/hdd/bfbo/xzhang42/static/openarm_full")
 CHECKPOINT_DIR = Path("/work/nvme/bfbo/xzhang42/.cache/openpi/openpi-assets/checkpoints/pi05_libero_pytorch")
-SKIP_FRAME = 10
+SKIP_FRAME = 40
 MAX_FRAMES = 0
 NUM_STEPS = 10
 PERTURBANCE_STEP_NUM = 0
@@ -21,27 +21,35 @@ DATASETS: dict[str, dict[str, str]] = {
         "repo": "qrafty-ai/tea_pick_cup",
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_pick_cup",
         "config": "pi05_tea_pick_cup",
+        "skip_frame": "20",
+        "max_frames": "1500",
     },
     "pour_ice": {
         "repo": "qrafty-ai/tea_pour_ice",
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_pour_ice",
         "config": "pi05_tea_pour_ice",
+        "skip_frame": "40",
+        "max_frames": "5000",
     },
     "use_spoon": {
         "repo": "qrafty-ai/tea_use_spoon_openpi",
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi",
         "config": "pi05_tea_use_spoon",
+        "skip_frame": "40",
+        "max_frames": "4700",
     },
     "use_steel_spoon": {
         "repo": "qrafty-ai/tea_use_steel_spoon",
         "path": "/work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_steel_spoon",
         "config": "pi05_tea_use_steel_spoon",
+        "skip_frame": "40",
+        "max_frames": "5000",
     },
 }
 
 RUNS = [
-    ("cosine", "cosine", "training", False),
-    ("gradient-inference", "gradient", "inference", False),
+    # ("cosine", "cosine", "training", False),
+    # ("gradient-inference", "gradient", "inference", False),
     ("perturbance-noise", "perturbance-noise", "inference", False),
 ]
 
@@ -68,9 +76,9 @@ def submit_job(
         "METRIC": metric,
         "CONDITION": condition,
         "SAVE_META": "True" if save_meta else "False",
-        "SKIP_FRAME": str(SKIP_FRAME),
+        "SKIP_FRAME": dataset_meta.get("skip_frame", str(SKIP_FRAME)),
         "NUM_STEPS": str(NUM_STEPS),
-        "MAX_FRAMES": str(MAX_FRAMES),
+        "MAX_FRAMES": dataset_meta.get("max_frames", str(MAX_FRAMES)),
         "PERTURBANCE_STEP_NUM": str(PERTURBANCE_STEP_NUM),
         "PERTURBANCE_STEP_SIZE": str(PERTURBANCE_STEP_SIZE),
         "EMBEDDING_TYPE": EMBEDDING_TYPE,
