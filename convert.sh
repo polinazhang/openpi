@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=BPT
-#SBATCH --output=results/run-%J.out
-#SBATCH --error=results/run-%J.err
+#SBATCH --job-name=Openpi-Convert
+#SBATCH --output=results/convert-%J.out
+#SBATCH --error=results/convert-%J.err
 #SBATCH --cpus-per-task=16
-#SBATCH --time=0:30:00
+#SBATCH --time=1:30:00
 #SBATCH --account=bfbo-dtai-gh
 #SBATCH --partition=ghx4
 #SBATCH --gres=gpu:h100:1
@@ -42,15 +42,18 @@ PY
 
 
 # ====== User-defined variables ======
-CONFIG_NAME="tea_use_spoon_openpi" 
-RUN_NAME="run0"
-DATASET_NAME="qrafty-ai/tea_use_spoon_openpi"
+CONFIG_NAME="pi05_tea_pick_cup" 
+RUN_NAME="action50"
+DATASET_NAME="qrafty-ai/tea_pick_cup"
 # ====================================
+
 
 BASE_DIR="/work/nvme/bfbo/xzhang42/openpi"
 CHECKPOINT_DIR="${BASE_DIR}/checkpoints/${CONFIG_NAME}/${RUN_NAME}"
 OUTPUT_BASE="${BASE_DIR}/checkpoints/${CONFIG_NAME}_pytorch"
 ASSET_SRC="${BASE_DIR}/assets/${CONFIG_NAME}/${DATASET_NAME}"
+echo "Checkpoint dir: ${CHECKPOINT_DIR}"
+echo "Asset dir: ${ASSET_SRC}"
 
 mkdir -p "${OUTPUT_BASE}"
 
@@ -59,6 +62,13 @@ echo "Converting checkpoints for ${CONFIG_NAME}/${RUN_NAME} ..."
 for ckpt_subdir in "${CHECKPOINT_DIR}"/*/; do
     ckpt_name=$(basename "${ckpt_subdir}")
     output_path="${OUTPUT_BASE}/${RUN_NAME}_${ckpt_name}"
+
+    # skip if target directory already exists (even if empty)
+    if [ -d "${output_path}" ]; then
+        echo "⚠️ Skipping ${ckpt_name} — ${output_path} already exists."
+        continue
+    fi
+
     mkdir -p "${output_path}"
 
     echo "→ Converting checkpoint: ${ckpt_name}"
@@ -68,7 +78,9 @@ for ckpt_subdir in "${CHECKPOINT_DIR}"/*/; do
         --output-path "${output_path}"
 
     echo "→ Syncing assets to ${output_path}/assets/${CONFIG_NAME}/"
+    mkdir -p "${output_path}/assets/${CONFIG_NAME}"
     rsync -a "${ASSET_SRC}/" "${output_path}/assets/${CONFIG_NAME}/"
 done
+
 
 echo "✅ Conversion complete. All converted checkpoints stored in: ${OUTPUT_BASE}"

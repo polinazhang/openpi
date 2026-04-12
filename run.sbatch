@@ -3,7 +3,7 @@
 #SBATCH --output=results/run-%J.out
 #SBATCH --error=results/run-%J.err
 #SBATCH --cpus-per-task=16
-#SBATCH --time=26:00:00
+#SBATCH --time=15:00:00
 #SBATCH --account=bfbo-dtai-gh
 #SBATCH --partition=ghx4
 #SBATCH --gres=gpu:h100:4
@@ -41,48 +41,24 @@ y = x @ x
 print(y.block_until_ready())
 PY
 
-
-# python scripts/compute_norm_stats.py \
-#   --config-name pi05_tea_use_steel_spoon \
-#   --repo-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_steel_spoon
-
-# python scripts/train.py \
-# pi05_tea_use_steel_spoon \
-# --data.repo_id /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_steel_spoon \
-# --exp-name action50 \
-# --num-train-steps 70001\
-
-# python scripts/compute_norm_stats.py \
-#   --config-name pi05_tea_use_spoon \
-#   --repo-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi
-
-# python scripts/train.py \
-# pi05_tea_use_spoon \
-# --data.repo_id /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi \
-# --exp-name action50 \
-
-# python scripts/train.py \
-#   pi05_tea_use_spoon \
-#   --data.repo_id /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_use_spoon_openpi \
-#   --exp-name action50 \
-#   --resume \
-#   --num-train-steps 70001
-
-# python scripts/compute_norm_stats.py \
-#   --config-name pi05_tea_pick_cup\
-#   --repo-root /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_pick_cup
-
-# python scripts/train.py \
-# pi05_tea_pick_cup \
-# --data.repo_id /work/nvme/bfbo/xzhang42/datasets/qrafty-ai/tea_pick_cup \
-# --exp-name action50 \
-
-# python scripts/compute_norm_stats.py \
-#   --config-name pi05_franka_object\
-#   --repo-root /work/nvme/bfbo/xzhang42/datasets/pink_blue_blocks_base_task
+# "$PY" scripts/compute_norm_stats.py \
+#   --config-name pi05_franka_on_top_30 \
+#   --repo-root /work/nvme/bfbo/xzhang42/datasets/franka_on_top_30
 
 "$PY" scripts/train.py \
-  pi05_franka_object \
-  --data.repo_id /work/nvme/bfbo/xzhang42/datasets/pink_blue_blocks_base_task \
+  pi05_franka_on_top_30\
+  --data.repo_id /work/nvme/bfbo/xzhang42/datasets/franka_on_top_30 \
   --exp-name delta-full0 \
+  --num-workers 0 \
   --num-train-steps 30001
+
+
+# "$PY" scripts/compute_norm_stats.py \
+#   --config-name pi05_franka_object_two_30 \
+#   --repo-root /work/nvme/bfbo/xzhang42/datasets/franka_object_two_30
+
+# "$PY" scripts/train.py \
+#   pi05_franka_object_two_30 \
+#   --data.repo_id /work/nvme/bfbo/xzhang42/datasets/franka_object_two_30 \
+#   --exp-name delta-full0 \
+#   --num-train-steps 30001

@@ -98,7 +98,12 @@ config = _config.get_config("pi05_droid")
 checkpoint_dir = download.maybe_download("gs://openpi-assets/checkpoints/pi05_droid")
 
 # Create a trained policy.
-policy = policy_config.create_trained_policy(config, checkpoint_dir)
+policy = policy_config.create_trained_policy(
+    config,
+    checkpoint_dir,
+    evaluation_suite_name="my_eval_suite",
+    data_dir="/tmp/openpi_metadata",
+)
 
 # Run inference on a dummy example.
 example = {
@@ -235,7 +240,12 @@ config = _config.get_config("pi05_droid")
 checkpoint_dir = "/path/to/converted/pytorch/checkpoint"
 
 # Create a trained policy (automatically detects PyTorch format)
-policy = policy_config.create_trained_policy(config, checkpoint_dir)
+policy = policy_config.create_trained_policy(
+    config,
+    checkpoint_dir,
+    evaluation_suite_name="my_eval_suite",
+    data_dir="/tmp/openpi_metadata",
+)
 
 # Run inference (same API as JAX)
 action_chunk = policy.infer(example)["actions"]

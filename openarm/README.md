@@ -2,10 +2,13 @@
 
 This directory contains helper scripts plus the training configs needed to fine‑tune Pi models on the OpenArm dataset.
 
+export OPENPI_DATA_HOME=/work/nvme/bfbo/xzhang42/.cache/openpi
+source /work/nvme/bfbo/xzhang42/openpi/.venv/bin/activate
+
 ### Downloading datasets
 Default saving directory: `/work/nvme/bfbo/xzhang42/datasets/<repo-id>` 
 
-python openarm/download_hf_dataset.py qrafty-ai/tea_use_spoon
+python openarm/download_hf_dataset.py qrafty-ai/tea_pick_cup
 
 ### Config
 Add a new config in `src/openpi/training/config.py` for the new dataset.
