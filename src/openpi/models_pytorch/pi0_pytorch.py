@@ -1071,6 +1071,7 @@ class PI0Pytorch(nn.Module):
         num_steps=10,
         step_num=0,
         step_size=1e-2,
+        save_displacement_trace=False,
         noise=None,
     ):
         """Static-only perturbance-noise analysis under condition-inference."""
@@ -1089,8 +1090,11 @@ class PI0Pytorch(nn.Module):
 
         prefix_pack = self._build_static_prefix_with_slices(images, img_masks, lang_tokens, lang_masks)
         x_t = noise.detach()
+        x_t_initial = x_t
         time = torch.tensor(1.0, dtype=torch.float32, device=device)
         dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
+        displacement_steps: list[torch.Tensor] = []
+        displacement_norm_steps: list[torch.Tensor] = []
 
         embedding_results = {
             embedding_type: {
@@ -1124,10 +1128,17 @@ class PI0Pytorch(nn.Module):
                     tau,
                 )
             x_t = (x_t + dt * v_t).detach()
+            if save_displacement_trace:
+                displacement = (x_t - x_t_initial).detach()
+                displacement_steps.append(displacement)
+                displacement_norm = torch.linalg.vector_norm(displacement.reshape(displacement.shape[0], -1), dim=1)
+                displacement_norm_steps.append(displacement_norm.detach())
             time = time + dt
 
         return {
             "embeddings": embedding_results,
+            "displacement_steps": displacement_steps,
+            "displacement_norm_steps": displacement_norm_steps,
         }
 
     @torch.no_grad()

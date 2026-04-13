@@ -79,3 +79,16 @@ Take vision embedding as the example here, which could be swapped with language 
 - final_layer_loss_vision_step_{diffusion_step_idx}  [this should be the full loss trajectory across diffusion steps
 
 The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
+
+
+**perturbance-noise with `save_displacement_trace` flag on**
+
+Except from saving all the perturbance-noise latents (those should always exist), also save the displacement vectors
+- displacement_norm  [this should be the ten l2 norms of displacement vectors from the first norm(delta(x_0,x_1)) to the last norm(delta(x_0,x_10))] (the l2 norm should be a single value, so the stored shape should thus be shape [10])
+- meta/displacement_step_{step_idx}  [this should be the full displacement vectors, measuring delta(x_0,x_1), delta(x_0,x_2), ... delta(x_0,x_10)]
+
+The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
+
+Note: Displacement outputs must go to parallel folder perturbance-noise-displacement/, not inside perturbance-noise/.
+You should create a separate folder in the result directory, i.e. folders perturbance-noise-displacement/ and perturbance-noise/ should be under a same mother directory.
+

@@ -139,7 +139,19 @@ def parse_args() -> argparse.Namespace:
         "--save_meta",
         type=parse_bool,
         default=False,
-        help="Cosine/perturbance-only flag. Ignored for gradient mode.",
+        help=(
+            "Cosine/perturbance flag. Ignored for gradient mode. For perturbance-noise, used only when "
+            "--save_displacement_trace=true."
+        ),
+    )
+    parser.add_argument(
+        "--save_displacement_trace",
+        type=parse_bool,
+        default=None,
+        help=(
+            "Perturbance-noise-only flag. If true, save displacement_norm and, when --save_meta=true, "
+            "meta/displacement_step_{k}."
+        ),
     )
     parser.add_argument(
         "--perturbance_step_num",
@@ -419,17 +431,30 @@ class PerturbanceNoiseEpisodeBuffer:
     final_layer_losses: dict[str, dict[int, list[np.ndarray]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(list))
     )
+    displacement_norms: list[np.ndarray] = field(default_factory=list)
+    displacement_steps: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
     frame_count: int = 0
 
     def add_frame(
         self,
         embedding_outputs: dict[str, dict[str, list[np.ndarray]]],
+        *,
+        displacement_norm_steps: list[np.ndarray] | None = None,
+        displacement_steps: list[np.ndarray] | None = None,
+        save_displacement_trace: bool = False,
+        save_meta: bool = False,
     ) -> None:
         for embedding_type, output in embedding_outputs.items():
             for step_idx, gradnorm in enumerate(output["gradnorm_steps"]):
                 self.gradnorms[embedding_type][step_idx].append(gradnorm)
             for step_idx, loss in enumerate(output["final_layer_loss_steps"]):
                 self.final_layer_losses[embedding_type][step_idx].append(loss)
+        if save_displacement_trace:
+            if displacement_norm_steps:
+                self.displacement_norms.append(np.stack(displacement_norm_steps, axis=0))
+            if save_meta and displacement_steps:
+                for step_idx, displacement in enumerate(displacement_steps):
+                    self.displacement_steps[step_idx].append(displacement)
         self.frame_count += 1
 
     def has_data(self) -> bool:
@@ -626,6 +651,9 @@ def finalize_perturbance_noise_episode(
     out_root: Path,
     offsets: Dict[str, int],
     metadata_entries: list[dict],
+    *,
+    save_displacement_trace: bool,
+    save_meta: bool,
 ) -> int:
     rel_prefix = f"{trajectory_id:06d}/npy-metadata"
     traj_dir = out_root / f"{trajectory_id:06d}" / "npy-metadata"
@@ -658,6 +686,14 @@ def finalize_perturbance_noise_episode(
         for diffusion_step_idx in sorted(buffer.final_layer_losses[embedding_type].keys()):
             loss_array = np.stack(buffer.final_layer_losses[embedding_type][diffusion_step_idx], axis=0)
             _record_artifact(f"final_layer_loss_{embedding_type}_step_{diffusion_step_idx}", loss_array)
+
+    if save_displacement_trace and buffer.displacement_norms:
+        displacement_norm_array = np.stack(buffer.displacement_norms, axis=0)
+        _record_artifact("displacement_norm", displacement_norm_array)
+        if save_meta:
+            for diffusion_step_idx in sorted(buffer.displacement_steps.keys()):
+                displacement_array = np.stack(buffer.displacement_steps[diffusion_step_idx], axis=0)
+                _record_artifact(f"meta/displacement_step_{diffusion_step_idx}", displacement_array)
 
     metadata_entries.append(
         {
@@ -1086,6 +1122,8 @@ def run_perturbance_noise_mode(
                     output_dir,
                     offsets,
                     metadata_entries,
+                    save_displacement_trace=args.save_displacement_trace,
+                    save_meta=args.save_meta,
                 )
             current_episode_step_offset = 0
             current_episode = episode_idx
@@ -1118,6 +1156,7 @@ def run_perturbance_noise_mode(
             num_steps=args.num_steps,
             step_num=args.perturbance_step_num,
             step_size=args.perturbance_step_size,
+            save_displacement_trace=args.save_displacement_trace,
         )
 
         embedding_outputs: dict[str, dict[str, list[np.ndarray]]] = {}
@@ -1134,7 +1173,25 @@ def run_perturbance_noise_mode(
             }
 
         if current_buffer is not None:
-            current_buffer.add_frame(embedding_outputs)
+            displacement_norm_steps = None
+            displacement_steps = None
+            if args.save_displacement_trace:
+                displacement_norm_steps = [
+                    step.squeeze(0).detach().to(dtype=torch.float32).cpu().numpy()
+                    for step in result["displacement_norm_steps"]
+                ]
+                if args.save_meta:
+                    displacement_steps = [
+                        step.squeeze(0).detach().to(dtype=torch.float32).cpu().numpy()
+                        for step in result["displacement_steps"]
+                    ]
+            current_buffer.add_frame(
+                embedding_outputs,
+                displacement_norm_steps=displacement_norm_steps,
+                displacement_steps=displacement_steps,
+                save_displacement_trace=args.save_displacement_trace,
+                save_meta=args.save_meta,
+            )
             if step_chunk_limit and current_buffer.num_frames() >= step_chunk_limit:
                 next_offset = current_episode_step_offset + current_buffer.num_frames()
                 trajectory_counter = finalize_perturbance_noise_episode(
@@ -1143,6 +1200,8 @@ def run_perturbance_noise_mode(
                     output_dir,
                     offsets,
                     metadata_entries,
+                    save_displacement_trace=args.save_displacement_trace,
+                    save_meta=args.save_meta,
                 )
                 current_episode_step_offset = next_offset
                 current_buffer = PerturbanceNoiseEpisodeBuffer(
@@ -1160,6 +1219,8 @@ def run_perturbance_noise_mode(
             output_dir,
             offsets,
             metadata_entries,
+            save_displacement_trace=args.save_displacement_trace,
+            save_meta=args.save_meta,
         )
 
     eval_pbar.close()
@@ -1171,17 +1232,21 @@ def run_perturbance_noise_mode(
     print(
         "Recorded "
         f"{processed} frames (skip_frame={args.skip_frame}, metric=perturbance-noise, "
-        f"num_steps={args.num_steps}, embedding_type={args.embedding_type})."
+        f"num_steps={args.num_steps}, embedding_type={args.embedding_type}, "
+        f"save_displacement_trace={args.save_displacement_trace}, save_meta={args.save_meta})."
     )
 
 
 def main() -> None:
     args = parse_args()
+    displacement_trace_was_provided = args.save_displacement_trace is not None
     embedding_type_was_provided = args.embedding_type is not None
     if embedding_type_was_provided:
         args.embedding_type = parse_embedding_types(args.embedding_type)
     if args.metric == "":
         args.metric = "gradient"
+    if args.save_displacement_trace is None:
+        args.save_displacement_trace = args.metric == "perturbance-noise"
     if not embedding_type_was_provided:
         if args.metric == "perturbance-noise":
             args.embedding_type = ["vision"]
@@ -1189,8 +1254,10 @@ def main() -> None:
             args.embedding_type = ["vision", "action"]
     if args.metric == "gradient" and args.save_meta:
         print("Ignoring --save_meta because it only applies to metric=cosine or metric=perturbance.")
-    if args.metric == "perturbance-noise" and args.save_meta:
-        print("Ignoring --save_meta because metric=perturbance-noise stores no meta deltas.")
+    if args.metric != "perturbance-noise" and displacement_trace_was_provided:
+        print("Ignoring --save_displacement_trace because metric is not perturbance-noise.")
+    if args.metric == "perturbance-noise" and args.save_meta and not args.save_displacement_trace:
+        print("Ignoring --save_meta for displacement traces because --save_displacement_trace is false.")
     if args.metric == "perturbance-noise":
         invalid = sorted(set(args.embedding_type) - PERTURBANCE_NOISE_EMBEDDING_TYPES)
         if invalid:
