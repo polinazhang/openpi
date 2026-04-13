@@ -55,6 +55,25 @@ A_t^{\tau-\Delta} = A_t^\tau - \Delta \,\mathbf{v} \left(A_t^\tau, o_t, \tau\rig
 $$
 Each step recomputes a one-step surrogate of the final sample. Think of it as computing 0.9->0, 0.8->0, 0.7->0. At inference step k, $A_t^\tau$ is the current rollout state carried from step k-1 (initialized only once at $A_t^1=\epsilon$).
 
+
+### D. `--metric="perturbance-noise"` (Amendment 1: displacement vector):
+I want you to add a toggle `static_inference.py .. --save_displacement_trace=True` that's default to True under mode D: perturbance-noise. Other modes should safely ignore this flag. 
+
+If this flag is true, mode D should also calculate and store the norm of the displacement vector, and the latent of the displacement vector itself if `--save_meta=True`. These share the same 10 diffusion step share the same model passes with the standard mode D and are thus computationally efficient to be put together in one mode.
+
+###  Displacement vector formulation details
+
+Compute, at each denoising step (k), the displacement vector from the initial pure-noise latent to the current predicted-action latent, and record its trajectory over all 10 steps.
+
+$$
+  \Delta A^{(k)} := A_t^{\tau_k}-A_t^1
+$$
+with $A_t^\tau \equiv x_t$ and $A_t^1$ as the initial pure-noise latent.
+
+(In other notations) Compute the Latent-space displacement $$\Delta x^{(k)} = x^{(k)} - x^{(0)}$$
+
+
+
 ## Loss Parity Requirement (Strict)
 
 For the perturbance mode, your implementation should match the original torch/jax PI0 loss semantics exactly:
@@ -97,6 +116,8 @@ For specific contents inside individual trajectory folders, look at the storage 
 Some old documentations may still refer to a version of static inference code in openarm/ which is no longer maintained. For this implementation, you should only look at and work in static_inference/. Ignore the openarm/ folder entirely.
 
 In the last milestone, which is writing post processing data scripts, you will also want to modify the data processing scripts. For prior milestones, stick to the static inference logic. The new code under static_inference/ should be flat scripts, **NOT** a package. 
+
+When running tests, you should always activate the python environment first `source /coc/testnvme/xzhang3205/openpi/.venv/bin/activate`
 
 ## sbatch scripts
 

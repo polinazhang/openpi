@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit static inference jobs for perturbance-noise displacement static metrics."""
+"""Submit static inference jobs for perturbance-noise static metrics."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ def submit_job(
     metric: str,
     condition: str,
     save_meta: bool,
+    save_cosine: bool,
     save_displacement_trace: bool,
     checkpoint_dir: Path,
     skip_frame: int,
@@ -42,6 +43,7 @@ def submit_job(
         "METRIC": metric,
         "CONDITION": condition,
         "SAVE_META": "True" if save_meta else "False",
+        "SAVE_COSINE": "True" if save_cosine else "False",
         "SAVE_DISPLACEMENT_TRACE": "True" if save_displacement_trace else "False",
         "SKIP_FRAME": str(skip_frame),
         "NUM_STEPS": "10",
@@ -82,8 +84,9 @@ if __name__ == "__main__":
         # ("gradient-training", "gradient", "training", False),
         # ("gradient-inference", "gradient", "inference", False),
         # ("perturbance", "perturbance", "training", True),
-        # ("perturbance-noise", "perturbance-noise", "inference", False, False),
-        ("perturbance-noise-displacement", "perturbance-noise", "inference", True, True),
+        # ("perturbance-noise", "perturbance-noise", "inference", False, False, False),
+        # ("perturbance-noise-displacement", "perturbance-noise", "inference", True, False, True),
+        ("perturbance-all", "perturbance-noise", "inference", True, True, True),
     ]
 
     # Test mode should finish quickly while still leaving enough processed samples.
@@ -94,11 +97,12 @@ if __name__ == "__main__":
         datasets = ["franka_on_top"]
         skip_frame = 200
         max_frames = 1200
-        # runs = [("perturbance-noise", "perturbance-noise", "inference", False, False)]
-        runs = [("perturbance-noise-displacement", "perturbance-noise", "inference", True, True)]
+        # runs = [("perturbance-noise", "perturbance-noise", "inference", False, False, False)]
+        # runs = [("perturbance-noise-displacement", "perturbance-noise", "inference", True, False, True)]
+        runs = [("perturbance-all", "perturbance-noise", "inference", True, True, True)]
 
     for dataset in datasets:
-        for mode, metric, condition, save_meta, save_displacement_trace in runs:
+        for mode, metric, condition, save_meta, save_cosine, save_displacement_trace in runs:
             submit_job(
                 root_dir=root_dir,
                 folder_name=folder_name,
@@ -107,6 +111,7 @@ if __name__ == "__main__":
                 metric=metric,
                 condition=condition,
                 save_meta=save_meta,
+                save_cosine=save_cosine,
                 save_displacement_trace=save_displacement_trace,
                 checkpoint_dir=checkpoint_dir,
                 skip_frame=skip_frame,

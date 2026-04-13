@@ -140,8 +140,18 @@ def parse_args() -> argparse.Namespace:
         type=parse_bool,
         default=False,
         help=(
-            "Cosine/perturbance flag. Ignored for gradient mode. For perturbance-noise, used only when "
-            "--save_displacement_trace=true."
+            "Cosine/perturbance flag. Ignored for gradient mode. For perturbance-noise, controls "
+            "meta/u, meta/cinference-v_* (when --save_cosine=true) and meta/displacement_step_* "
+            "(when --save_displacement_trace=true)."
+        ),
+    )
+    parser.add_argument(
+        "--save_cosine",
+        type=parse_bool,
+        default=None,
+        help=(
+            "Perturbance-noise-only flag. If true, save condition-inference cosine artifacts and, "
+            "when --save_meta=true, save meta/u and meta/cinference-v_{layer_idx}."
         ),
     )
     parser.add_argument(
@@ -431,6 +441,9 @@ class PerturbanceNoiseEpisodeBuffer:
     final_layer_losses: dict[str, dict[int, list[np.ndarray]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(list))
     )
+    cinference_cosine: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
+    meta_u: list[np.ndarray] = field(default_factory=list)
+    cinference_v_meta: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
     displacement_norms: list[np.ndarray] = field(default_factory=list)
     displacement_steps: dict[int, list[np.ndarray]] = field(default_factory=lambda: defaultdict(list))
     frame_count: int = 0
@@ -439,6 +452,10 @@ class PerturbanceNoiseEpisodeBuffer:
         self,
         embedding_outputs: dict[str, dict[str, list[np.ndarray]]],
         *,
+        cinference_cosine: dict[int, np.ndarray] | None = None,
+        target_u: np.ndarray | None = None,
+        cinference_v_layers: dict[int, np.ndarray] | None = None,
+        save_cosine: bool = False,
         displacement_norm_steps: list[np.ndarray] | None = None,
         displacement_steps: list[np.ndarray] | None = None,
         save_displacement_trace: bool = False,
@@ -449,6 +466,14 @@ class PerturbanceNoiseEpisodeBuffer:
                 self.gradnorms[embedding_type][step_idx].append(gradnorm)
             for step_idx, loss in enumerate(output["final_layer_loss_steps"]):
                 self.final_layer_losses[embedding_type][step_idx].append(loss)
+        if save_cosine and cinference_cosine is not None:
+            for layer_idx, values in cinference_cosine.items():
+                self.cinference_cosine[layer_idx].append(values)
+            if save_meta and target_u is not None:
+                self.meta_u.append(target_u)
+            if save_meta and cinference_v_layers is not None:
+                for layer_idx, values in cinference_v_layers.items():
+                    self.cinference_v_meta[layer_idx].append(values)
         if save_displacement_trace:
             if displacement_norm_steps:
                 self.displacement_norms.append(np.stack(displacement_norm_steps, axis=0))
@@ -652,6 +677,7 @@ def finalize_perturbance_noise_episode(
     offsets: Dict[str, int],
     metadata_entries: list[dict],
     *,
+    save_cosine: bool,
     save_displacement_trace: bool,
     save_meta: bool,
 ) -> int:
@@ -686,6 +712,14 @@ def finalize_perturbance_noise_episode(
         for diffusion_step_idx in sorted(buffer.final_layer_losses[embedding_type].keys()):
             loss_array = np.stack(buffer.final_layer_losses[embedding_type][diffusion_step_idx], axis=0)
             _record_artifact(f"final_layer_loss_{embedding_type}_step_{diffusion_step_idx}", loss_array)
+
+    if save_cosine:
+        for layer_idx in sorted(buffer.cinference_cosine.keys()):
+            _record_artifact(f"cinference-cosine_{layer_idx:02d}", np.stack(buffer.cinference_cosine[layer_idx], axis=0))
+        if save_meta and buffer.meta_u:
+            _record_artifact("meta/u", np.stack(buffer.meta_u, axis=0))
+            for layer_idx in sorted(buffer.cinference_v_meta.keys()):
+                _record_artifact(f"meta/cinference-v_{layer_idx:02d}", np.stack(buffer.cinference_v_meta[layer_idx], axis=0))
 
     if save_displacement_trace and buffer.displacement_norms:
         displacement_norm_array = np.stack(buffer.displacement_norms, axis=0)
@@ -1122,6 +1156,7 @@ def run_perturbance_noise_mode(
                     output_dir,
                     offsets,
                     metadata_entries,
+                    save_cosine=args.save_cosine,
                     save_displacement_trace=args.save_displacement_trace,
                     save_meta=args.save_meta,
                 )
@@ -1156,6 +1191,7 @@ def run_perturbance_noise_mode(
             num_steps=args.num_steps,
             step_num=args.perturbance_step_num,
             step_size=args.perturbance_step_size,
+            save_cosine=args.save_cosine,
             save_displacement_trace=args.save_displacement_trace,
         )
 
@@ -1173,6 +1209,25 @@ def run_perturbance_noise_mode(
             }
 
         if current_buffer is not None:
+            cinference_cosine = None
+            meta_u = None
+            meta_cinference_v = None
+            if args.save_cosine:
+                target = result["target"].squeeze(0)
+                cinference_vt_layers = {
+                    layer_idx: layer_v.squeeze(0)
+                    for layer_idx, layer_v in result["cinference_vt_layers"].items()
+                }
+                cinference_cosine = {
+                    layer_idx: compute_cosine(layer_v, target.unsqueeze(0)).detach().cpu().numpy()
+                    for layer_idx, layer_v in cinference_vt_layers.items()
+                }
+                if args.save_meta:
+                    meta_u = target.detach().cpu().numpy()
+                    meta_cinference_v = {
+                        layer_idx: layer_v.detach().cpu().numpy()
+                        for layer_idx, layer_v in cinference_vt_layers.items()
+                    }
             displacement_norm_steps = None
             displacement_steps = None
             if args.save_displacement_trace:
@@ -1187,6 +1242,10 @@ def run_perturbance_noise_mode(
                     ]
             current_buffer.add_frame(
                 embedding_outputs,
+                cinference_cosine=cinference_cosine,
+                target_u=meta_u,
+                cinference_v_layers=meta_cinference_v,
+                save_cosine=args.save_cosine,
                 displacement_norm_steps=displacement_norm_steps,
                 displacement_steps=displacement_steps,
                 save_displacement_trace=args.save_displacement_trace,
@@ -1200,6 +1259,7 @@ def run_perturbance_noise_mode(
                     output_dir,
                     offsets,
                     metadata_entries,
+                    save_cosine=args.save_cosine,
                     save_displacement_trace=args.save_displacement_trace,
                     save_meta=args.save_meta,
                 )
@@ -1219,6 +1279,7 @@ def run_perturbance_noise_mode(
             output_dir,
             offsets,
             metadata_entries,
+            save_cosine=args.save_cosine,
             save_displacement_trace=args.save_displacement_trace,
             save_meta=args.save_meta,
         )
@@ -1233,18 +1294,22 @@ def run_perturbance_noise_mode(
         "Recorded "
         f"{processed} frames (skip_frame={args.skip_frame}, metric=perturbance-noise, "
         f"num_steps={args.num_steps}, embedding_type={args.embedding_type}, "
-        f"save_displacement_trace={args.save_displacement_trace}, save_meta={args.save_meta})."
+        f"save_cosine={args.save_cosine}, save_displacement_trace={args.save_displacement_trace}, "
+        f"save_meta={args.save_meta})."
     )
 
 
 def main() -> None:
     args = parse_args()
+    save_cosine_was_provided = args.save_cosine is not None
     displacement_trace_was_provided = args.save_displacement_trace is not None
     embedding_type_was_provided = args.embedding_type is not None
     if embedding_type_was_provided:
         args.embedding_type = parse_embedding_types(args.embedding_type)
     if args.metric == "":
         args.metric = "gradient"
+    if args.save_cosine is None:
+        args.save_cosine = args.metric == "perturbance-noise"
     if args.save_displacement_trace is None:
         args.save_displacement_trace = args.metric == "perturbance-noise"
     if not embedding_type_was_provided:
@@ -1254,10 +1319,10 @@ def main() -> None:
             args.embedding_type = ["vision", "action"]
     if args.metric == "gradient" and args.save_meta:
         print("Ignoring --save_meta because it only applies to metric=cosine or metric=perturbance.")
+    if args.metric != "perturbance-noise" and save_cosine_was_provided:
+        print("Ignoring --save_cosine because metric is not perturbance-noise.")
     if args.metric != "perturbance-noise" and displacement_trace_was_provided:
         print("Ignoring --save_displacement_trace because metric is not perturbance-noise.")
-    if args.metric == "perturbance-noise" and args.save_meta and not args.save_displacement_trace:
-        print("Ignoring --save_meta for displacement traces because --save_displacement_trace is false.")
     if args.metric == "perturbance-noise":
         invalid = sorted(set(args.embedding_type) - PERTURBANCE_NOISE_EMBEDDING_TYPES)
         if invalid:
@@ -1277,7 +1342,10 @@ def main() -> None:
         print("metric=perturbance-noise computes first gradient only; step_num/step_size are accepted but ignored.")
 
     dataset_cfg = DATASETS[args.dataset]
-    output_dir = args.output_root.expanduser() / args.dataset
+    output_root = args.output_root.expanduser()
+    if args.metric == "perturbance-noise" and output_root.name != "perturbance-all":
+        output_root = output_root.parent / "perturbance-all"
+    output_dir = output_root / args.dataset
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_config = _config.get_config(dataset_cfg["config"])

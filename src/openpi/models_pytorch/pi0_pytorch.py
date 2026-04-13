@@ -1071,6 +1071,7 @@ class PI0Pytorch(nn.Module):
         num_steps=10,
         step_num=0,
         step_size=1e-2,
+        save_cosine=False,
         save_displacement_trace=False,
         noise=None,
     ):
@@ -1095,6 +1096,7 @@ class PI0Pytorch(nn.Module):
         dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
         displacement_steps: list[torch.Tensor] = []
         displacement_norm_steps: list[torch.Tensor] = []
+        cinference_layer_steps: dict[int, list[torch.Tensor]] = {}
 
         embedding_results = {
             embedding_type: {
@@ -1120,13 +1122,24 @@ class PI0Pytorch(nn.Module):
                 embedding_results[embedding_type]["tau_steps"].append(tau.detach())
 
             with torch.no_grad():
-                v_t = self.denoise_step(
-                    state,
-                    prefix_pad_masks,
-                    past_key_values,
-                    x_t,
-                    tau,
-                )
+                if save_cosine:
+                    v_t, vt_layers = self._compute_static_vt_layers(
+                        state,
+                        prefix_pad_masks,
+                        past_key_values,
+                        x_t,
+                        tau,
+                    )
+                    for layer_idx, vt in vt_layers.items():
+                        cinference_layer_steps.setdefault(layer_idx, []).append(vt.detach())
+                else:
+                    v_t = self.denoise_step(
+                        state,
+                        prefix_pad_masks,
+                        past_key_values,
+                        x_t,
+                        tau,
+                    )
             x_t = (x_t + dt * v_t).detach()
             if save_displacement_trace:
                 displacement = (x_t - x_t_initial).detach()
@@ -1135,8 +1148,16 @@ class PI0Pytorch(nn.Module):
                 displacement_norm_steps.append(displacement_norm.detach())
             time = time + dt
 
+        cinference_layers = (
+            {layer_idx: torch.stack(step_values, dim=1) for layer_idx, step_values in cinference_layer_steps.items()}
+            if save_cosine
+            else {}
+        )
+
         return {
             "embeddings": embedding_results,
+            "target": u_t.detach(),
+            "cinference_vt_layers": dict(sorted(cinference_layers.items())),
             "displacement_steps": displacement_steps,
             "displacement_norm_steps": displacement_norm_steps,
         }

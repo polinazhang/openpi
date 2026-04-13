@@ -89,6 +89,4 @@ Except from saving all the perturbance-noise latents (those should always exist)
 
 The content inside meta/ are decided by the flag `--save_meta=True` passed in to the static inference script
 
-Note: Displacement outputs must go to parallel folder perturbance-noise-displacement/, not inside perturbance-noise/.
-You should create a separate folder in the result directory, i.e. folders perturbance-noise-displacement/ and perturbance-noise/ should be under a same mother directory.
 
