@@ -72,6 +72,15 @@ with $A_t^\tau \equiv x_t$ and $A_t^1$ as the initial pure-noise latent.
 
 (In other notations) Compute the Latent-space displacement $$\Delta x^{(k)} = x^{(k)} - x^{(0)}$$
 
+### D. `--metric="perturbance-noise"` (Amendment 2: cosine-inference):
+Add a toggle `static_inference.py .. --save_cosine=True` that's default to True under mode D: perturbance-noise. Other modes should safely ignore this flag. If this flag is true, mode D should also calculate and store the cosine like what mode A did, but only for condition-inference, since mode D is only supposed to run in the inference mode.
+
+All storage/naming rules and mathematical formulations are identical to mode A except that only one condition-inference should run and its latent should store. Ignore condition-training. (mode A did both condition-training and condition-inference)
+
+### D. Storage
+The new rule you should implement is that, regardless of whether save_displacement_trace and save_cosine is True or False, save the results into perturbance-all/. 
+
+
 
 
 ## Loss Parity Requirement (Strict)
@@ -122,7 +131,7 @@ When running tests, you should always activate the python environment first `sou
 ## sbatch scripts
 
 
-There's already `launch_static.sbatch` for running the 4 datasets and a `static_launcher.py` (no additional args except a test flag allowed, must run as it is) for launching all conditions, including cosine (with save_meta=False), gradient training, gradient inference. The output roots are created by the launcher python file inside `/coc/testnvme/xzhang3205/static/franka_full` with dataset names franka_object  franka_object_plus  franka_object_two  franka_on_top, inside which cosine/ , gradient-training/ , gradient-inference/ , perturbance/, perturbance-noise/ are the actual paths where the program writes files to. I want you extend the two files to support the launch of perturbance mode. `--save_meta=True` should be stated true for both testing and actual run, make it explicit in the launch script instead of modifying the default arg though (default should still be False).
+There's already `launch_static.sbatch` for running the 4 datasets and a `static_launcher.py` (no additional args except a test flag allowed, must run as it is) for launching all conditions, including cosine (with save_meta=False), gradient training, gradient inference. The output roots are created by the launcher python file inside `/coc/testnvme/xzhang3205/static/franka_full` with dataset names franka_object  franka_object_plus  franka_object_two  franka_on_top, inside which cosine/ , gradient-training/ , gradient-inference/ , perturbance/, perturbance-all/ are the actual paths where the program writes files to. I want you extend the two files to support the launch of perturbance mode. `--save_meta=True` should be stated true for both testing and actual run, make it explicit in the launch script instead of modifying the default arg though (default should still be False).
 
 In the python launcher the first few lines should have `folder_name='franka_full'` which I can always manually change later.
 For the test flag, only franka_on_top should be launched, and the folder name should be test_currentime instead of franka_full. The skip frames should be set to very high so that the runs finish quickly (allow at least 5 steps actually computed though, for inference it will become 5*10=50). For the actual launch, keep the skip frame number in the previous code.

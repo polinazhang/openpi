@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Submit static inference jobs for perturbance-noise static metrics."""
+"""Submit static inference jobs for the 4 OOD conditions.
 
+Conditions:
+  in-dist             checkpoint=pi05_franka_object_single  dataset=franka_object_single
+  vision-ood-replace  checkpoint=torch_30000                dataset=franka_object_vision_ood_replace
+  vision-ood-addition checkpoint=torch_30000                dataset=franka_object_vision_ood_addition
+  action-ood          checkpoint=torch_30000                dataset=franka_object_action_ood
+"""
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Submit static inference jobs.")
-    parser.add_argument("--test", action="store_true", help="Run quick test jobs only.")
+    parser = argparse.ArgumentParser(description="Submit OOD static inference jobs.")
+    parser.add_argument("--test", action="store_true", help="Run quick test job only.")
     return parser.parse_args()
 
 
@@ -62,43 +67,34 @@ if __name__ == "__main__":
     args = parse_args()
 
     root_dir = Path("/coc/testnvme/xzhang3205/openpi")
-    folder_name = "franka_full"
-    checkpoint_dir = Path(
-        os.environ.get("CHECKPOINT_DIR", "/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
-    )
+    folder_name = "ood_full"
 
-    datasets = [
-        "franka_object",
-        "franka_object_plus",
-        "franka_object_two",
-        "franka_on_top",
-        "franka_object_action_ood",
-        "franka_object_vision_ood",
+    CHECKPOINT_DEFAULT = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
+    CHECKPOINT_INDIST = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/pi05_franka_object_single")
+
+    # (dataset, checkpoint_dir)
+    conditions = [
+        ("franka_object_single",           CHECKPOINT_INDIST),
+        ("franka_object_vision_ood_replace", CHECKPOINT_DEFAULT),
+        ("franka_object_vision_ood_addition", CHECKPOINT_DEFAULT),
+        ("franka_object_action_ood",         CHECKPOINT_DEFAULT),
     ]
-    if args.test:
-        folder_name = "test_currentime"
-        datasets = ["franka_object_action_ood"]
 
     runs = [
-        # ("cosine", "cosine", "training", True),
-        # ("gradient-training", "gradient", "training", False),
-        # ("gradient-inference", "gradient", "inference", False),
-        # ("perturbance", "perturbance", "training", True),
-        # ("perturbance-noise", "perturbance-noise", "inference", False, False, False),
         ("perturbance-all", "perturbance-noise", "inference", True, True, True),
     ]
 
-    # Test mode should finish quickly while still leaving enough processed samples.
-    # With skip_frame=200 and max_frames=1200, runs keep at least ~5 evaluated frames.
-    skip_frame = 500 if args.test else 10
-    max_frames = 3000 if args.test else 0
+    skip_frame = 10
+    max_frames = 0
+
     if args.test:
-        datasets = ["franka_on_top"]
+        folder_name = "test_currentime"
+        # franka_object_single is a single 364-frame episode — smallest possible test
+        conditions = [("franka_object_single", CHECKPOINT_INDIST)]
         skip_frame = 200
         max_frames = 1200
-        runs = [("perturbance-all", "perturbance-noise", "inference", True, True, True)]
 
-    for dataset in datasets:
+    for dataset, checkpoint_dir in conditions:
         for mode, metric, condition, save_meta, save_cosine, save_displacement_trace in runs:
             submit_job(
                 root_dir=root_dir,
@@ -115,8 +111,5 @@ if __name__ == "__main__":
                 max_frames=max_frames,
                 perturbance_step_num=0,
                 perturbance_step_size=1e-2,
-                # embedding_type="time",
-                # embedding_type="vision+action",
-                # embedding_type="vision+action+time",
                 embedding_type="vision",
             )

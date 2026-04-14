@@ -24,8 +24,6 @@ export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRA
 
 DATASET="${DATASET:-franka_object_action_ood}"
 # OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
-# OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/perturbance-noise}"
-# OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/perturbance-noise-displacement}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/perturbance-all}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000}"
 # METRIC="${METRIC:-gradient}"
@@ -72,6 +70,9 @@ declare -A DATASET_PROMPTS=(
   # [franka_on_top]="place the pink block on top of the blue block"
   [franka_object_action_ood]=""
   [franka_object_vision_ood]=""
+  [franka_object_single]=""
+  [franka_object_vision_ood_addition]=""
+  [franka_object_vision_ood_replace]=""
 )
 
 echo "=== Running static metrics dataset=${DATASET} metric=${METRIC} condition=${CONDITION} ==="
