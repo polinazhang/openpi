@@ -1372,6 +1372,10 @@ def main() -> None:
             data=dataclasses.replace(train_config.data, default_prompt=args.data_default_prompt),
         )
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
+    _norm_stats_path = Path(train_config.assets_dirs) / data_config.asset_id if data_config.asset_id else None
+    print(f"Norm stats path: {_norm_stats_path}")
+    if data_config.norm_stats is None:
+        raise SystemExit(f"ERROR: norm stats path not found at {_norm_stats_path}")
     checkpoint_path = Path(download.maybe_download(str(args.checkpoint_dir)))
     model = load_model(train_config, checkpoint_path, args.device)
 
