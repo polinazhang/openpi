@@ -113,8 +113,6 @@ class PI0Pytorch(nn.Module):
 
         # Initialize gradient checkpointing flag
         self.gradient_checkpointing_enabled = False
-        self._activation_recorder = None
-
         msg = "transformers_replace is not installed correctly. Please install it with `uv pip install transformers==4.53.2` and `cp -r ./src/openpi/models_pytorch/transformers_replace/* .venv/lib/python3.11/site-packages/transformers/`."
         try:
             from transformers.models.siglip import check
@@ -380,7 +378,6 @@ class PI0Pytorch(nn.Module):
         if noise is None:
             actions_shape = (bsize, self.config.action_horizon, self.config.action_dim)
             noise = self.sample_noise(actions_shape, device)
-        self._record_activation("extra:diffusion_noise", -1, noise)
 
         images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=False)
 
@@ -418,7 +415,6 @@ class PI0Pytorch(nn.Module):
             # Euler step - use new tensor assignment instead of in-place operation
             x_t = x_t + dt * v_t
             time += dt
-        self._record_activation("extra:predicted_action_chunk", -1, x_t)
         return x_t
 
     def denoise_step(
@@ -468,30 +464,6 @@ class PI0Pytorch(nn.Module):
         if output_hidden_states:
             return v_t, suffix_hidden_states, adarms_cond
         return v_t
-
-    def register_activation_recorder(self, callback):
-        self._activation_recorder = callback
-
-        def action_hook(layer_idx, tensor, cond):
-            if self._activation_recorder is None or tensor is None:
-                return
-            chunk = tensor[:, -self.config.action_horizon :, :]
-            normed, _ = self.paligemma_with_expert.gemma_expert.model.norm(chunk, cond=cond)
-            vt_layer = self.action_out_proj(normed.to(dtype=torch.float32))
-            self._record_activation("action_expert_vt", layer_idx, vt_layer)
-
-        if callback is None:
-            self.paligemma_with_expert.register_action_expert_hook(None)
-        else:
-            self.paligemma_with_expert.register_action_expert_hook(action_hook)
-
-    def _record_activation(self, branch, layer_idx, tensor):
-        if self._activation_recorder is None or tensor is None:
-            return
-        try:
-            self._activation_recorder(branch, layer_idx, tensor)
-        except Exception:
-            pass
 
     @torch.no_grad()
     def _prepare_static_prefix_context(self, observation):
@@ -1160,53 +1132,4 @@ class PI0Pytorch(nn.Module):
             "cinference_vt_layers": dict(sorted(cinference_layers.items())),
             "displacement_steps": displacement_steps,
             "displacement_norm_steps": displacement_norm_steps,
-        }
-
-    @torch.no_grad()
-    def compute_static_targets(self, observation, actions, *, noise=None, time=None):
-        """Run a teacher-forced pass that returns vt tensors for every layer.
-
-        This is used by the static evaluation script and is intentionally isolated
-        from the regular inference/training code paths.
-        """
-        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(
-            observation, train=False
-        )
-        device = state.device
-        actions = actions.to(device=device, dtype=torch.float32)
-        if noise is None:
-            noise = self.sample_noise(actions.shape, device)
-        if time is None:
-            time = self.sample_time(actions.shape[0], device)
-        time_expanded = time[:, None, None]
-        x_t = time_expanded * noise + (1 - time_expanded) * actions
-        u_t = noise - actions
-
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
-            images, img_masks, lang_tokens, lang_masks
-        )
-        prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
-        prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
-        prefix_att_2d_masks_4d = self._prepare_attention_masks_4d(prefix_att_2d_masks)
-        self.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"  # noqa: SLF001
-
-        _, past_key_values, _ = self.paligemma_with_expert.forward(
-            attention_mask=prefix_att_2d_masks_4d,
-            position_ids=prefix_position_ids,
-            past_key_values=None,
-            inputs_embeds=[prefix_embs, None],
-            use_cache=True,
-        )
-
-        self._record_activation("extra:diffusion_noise", -1, noise)
-
-        expanded_time = time.expand(state.shape[0])
-        final_vt, vt_layers = self._compute_static_vt_layers(
-            state, prefix_pad_masks, past_key_values, x_t, expanded_time
-        )
-
-        return {
-            "vt_layers": vt_layers,
-            "target": u_t,
-            "final_prediction": final_vt,
         }

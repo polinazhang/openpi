@@ -93,10 +93,18 @@ if __name__ == "__main__":
     skip_frame = 500 if args.test else 10
     max_frames = 3000 if args.test else 0
     if args.test:
+        folder_name = "test_currentime"
         datasets = ["franka_on_top"]
         skip_frame = 200
         max_frames = 1200
-        runs = [("perturbance-all", "perturbance-noise", "inference", True, True, True)]
+        # 4 metric modes total; gradient needs separate training/inference jobs.
+        runs = [
+            ("cosine", "cosine", "training", True, False, False),
+            ("gradient-training", "gradient", "training", False, False, False),
+            ("gradient-inference", "gradient", "inference", False, False, False),
+            ("perturbance", "perturbance", "training", True, False, False),
+            ("perturbance-all", "perturbance-noise", "inference", True, True, True),
+        ]
 
     for dataset in datasets:
         for mode, metric, condition, save_meta, save_cosine, save_displacement_trace in runs:

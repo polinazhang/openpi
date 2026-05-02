@@ -357,7 +357,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotOpenArmDataConfig(DataConfigFactory):
-    """Config for OpenArm LeRobot datasets with only wrist cameras."""
+    """Config for OpenArm LeRobot datasets with only wrist cameras. [Legacy]"""
 
     dataset_action_dim: int = 16
     gripper_dims: int = 2
@@ -1026,7 +1026,7 @@ _CONFIGS = [
         batch_size=32,
     ),
     #
-    # OpenArm fine-tuning configs.
+    # OpenArm fine-tuning configs. [Legacy]
     #
     TrainConfig(
         name="pi05_tea_use_spoon",

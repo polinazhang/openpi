@@ -9,12 +9,7 @@ from openpi.training import config as _config
 @pytest.mark.manual
 def test_infer():
     config = _config.get_config("pi0_aloha_sim")
-    policy = _policy_config.create_trained_policy(
-        config,
-        "gs://openpi-assets/checkpoints/pi0_aloha_sim",
-        evaluation_suite_name="manual_test",
-        data_dir="policy_test_runs",
-    )
+    policy = _policy_config.create_trained_policy(config, "gs://openpi-assets/checkpoints/pi0_aloha_sim")
 
     example = aloha_policy.make_aloha_example()
     result = policy.infer(example)
@@ -25,12 +20,7 @@ def test_infer():
 @pytest.mark.manual
 def test_broker():
     config = _config.get_config("pi0_aloha_sim")
-    policy = _policy_config.create_trained_policy(
-        config,
-        "gs://openpi-assets/checkpoints/pi0_aloha_sim",
-        evaluation_suite_name="manual_test",
-        data_dir="policy_test_runs",
-    )
+    policy = _policy_config.create_trained_policy(config, "gs://openpi-assets/checkpoints/pi0_aloha_sim")
 
     broker = action_chunk_broker.ActionChunkBroker(
         policy,
