@@ -62,7 +62,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     root_dir = Path("/coc/testnvme/xzhang3205/openpi")
-    folder_name = "franka_full"
+    folder_name = "franka_corrected"
     checkpoint_dir = Path(
         os.environ.get("CHECKPOINT_DIR", "/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
     )
@@ -72,15 +72,15 @@ if __name__ == "__main__":
         "franka_object_plus",
         "franka_object_two",
         "franka_on_top",
-        "franka_object_action_ood",
-        "franka_object_vision_ood",
+        # "franka_object_action_ood",
+        # "franka_object_vision_ood",
     ]
     if args.test:
         folder_name = "test_currentime"
         datasets = ["franka_object_action_ood"]
 
     runs = [
-        # ("cosine", "cosine", "training", True),
+        ("cosine", "cosine", "training", True, True, True),
         # ("gradient-training", "gradient", "training", False),
         # ("gradient-inference", "gradient", "inference", False),
         # ("perturbance", "perturbance", "training", True),

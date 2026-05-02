@@ -67,7 +67,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     root_dir = Path("/coc/testnvme/xzhang3205/openpi")
-    folder_name = "ood_full"
+    folder_name = "ood_corrected"
 
     CHECKPOINT_DEFAULT = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
     CHECKPOINT_INDIST = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/pi05_franka_object_single")
@@ -81,6 +81,7 @@ if __name__ == "__main__":
     ]
 
     runs = [
+        ("cosine", "cosine", "training", True, True, True),
         ("perturbance-all", "perturbance-noise", "inference", True, True, True),
     ]
 

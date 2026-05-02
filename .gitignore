@@ -2,6 +2,8 @@ results
 instructions/shared_info
 instructions/
 tea_use_spoon_45000/*
+ood/example_images
+ood/
 
 # Data directories.
 assets/
@@ -12,6 +14,11 @@ lerobot
 results
 franka/
 prompts/.outdated
+static_results
+legacy/
+prompts/reference(outdated)
+openarm/*.json
+figures/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

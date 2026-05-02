@@ -24,7 +24,7 @@ from pathlib import Path
 # ============================================================
 
 FRANKA_ROOT  = "/coc/testnvme/xzhang3205/static/franka_corrected"
-OPENARM_ROOT = "/coc/testnvme/xzhang3205/static/openarm_corrected"
+OPENARM_ROOT = "/coc/testnvme/xzhang3205/static/openarm_full"
 OOD_ROOT     = "/coc/testnvme/xzhang3205/static/ood_corrected"
 OUTPUT_ROOT  = "/coc/testnvme/xzhang3205/openpi/static_results"
 
@@ -349,9 +349,9 @@ def collect_franka(dataset: str) -> dict:
     eps  = EPISODES_0_9
     return {
         'cosine'      : load_cosine(root, eps, "cosine"),
-        'gradnorm'    : load_gradnorm(root, eps, "perturbance-noise-displacement"),
-        'gradient'    : load_gradient(root, eps, "gradient-inference"),
-        'displacement': load_displacement(root, eps, "perturbance-noise-displacement"),
+        'gradnorm'    : load_gradnorm(root, eps, "perturbance-all"),
+        'gradient'    : None,  # not present in franka_corrected
+        'displacement': load_displacement(root, eps, "perturbance-all"),
     }
 
 
@@ -411,13 +411,19 @@ def step_stats(arr: np.ndarray | None):
     return arr.mean(axis=0), arr.std(axis=0)
 
 
-def fmt(mean_val, std_val, prec=2) -> str:
+def fmt_val(mean_val, prec=2) -> str:
     if mean_val is None:
         return "--"
-    # Use scientific notation when both mean and std are very small
-    if abs(mean_val) < 0.01 and abs(std_val) < 0.01:
-        return f"{mean_val:.2e} $\\pm$ {std_val:.2e}"
-    return f"{mean_val:.{prec}f} $\\pm$ {std_val:.{prec}f}"
+    v = abs(mean_val)
+    if v >= 0.01:
+        return f"{v:.{prec}f}"
+    return f"{v:.3e}"
+
+
+def fmt_var(std_val) -> str:
+    if std_val is None:
+        return "--"
+    return f"{std_val ** 2:.3e}"
 
 # ============================================================
 # Table generation
@@ -437,13 +443,14 @@ def build_table(
     all_data: dict,
     step_idx: int | None,
     title: str,
-) -> str:
+) -> tuple:
     """
-    Build a LaTeX table.
+    Build two LaTeX tables (values, variance) for a given condition.
 
     step_idx: int -> use that diffusion step (0-indexed); None -> average over all 10 steps.
+    Returns (values_table_str, variance_table_str).
     """
-    rows = []
+    val_rows, var_rows = [], []
     for ds in datasets:
         d = all_data[ds]
 
@@ -451,9 +458,9 @@ def build_table(
             if arr is None:
                 return None, None
             if step is not None:
-                col = arr[:, step]         # (T,)
+                col = arr[:, step]
             else:
-                col = arr.mean(axis=1)     # (T,) - mean over steps per frame, then stats
+                col = arr.mean(axis=1)
             return col.mean(), col.std()
 
         cosine_final_m, cosine_final_s = get_val(
@@ -464,42 +471,48 @@ def build_table(
         gradient_m, gradient_s = get_val(d['gradient'], step_idx)
         displace_m, displace_s = get_val(d['displacement'], step_idx)
 
-        row = " & ".join([
+        val_rows.append(" & ".join([
             _escape(ds),
-            fmt(cosine_final_m, cosine_final_s),
-            fmt(cosine_all_m, cosine_all_s),
-            fmt(gradnorm_m, gradnorm_s),
-            fmt(gradient_m, gradient_s),
-            fmt(displace_m, displace_s),
-        ]) + r" \\"
-        rows.append(row)
+            fmt_val(cosine_final_m, prec=4), fmt_val(cosine_all_m, prec=4),
+            fmt_val(gradnorm_m), fmt_val(gradient_m), fmt_val(displace_m),
+        ]) + r" \\")
 
-    body = "\n".join(rows)
-    lines = [
-        f"% {title}",
-        r"\begin{table}[h]",
-        r"\centering",
-        r"\caption{" + title + "}",
-        r"\begin{tabular}{llllll}",
-        r"\hline",
-        COL_HEADER + r" \\",
-        r"\hline",
-        body,
-        r"\hline",
-        r"\end{tabular}",
-        r"\end{table}",
-    ]
-    return "\n".join(lines)
+        var_rows.append(" & ".join([
+            _escape(ds),
+            fmt_var(cosine_final_s), fmt_var(cosine_all_s),
+            fmt_var(gradnorm_s), fmt_var(gradient_s), fmt_var(displace_s),
+        ]) + r" \\")
+
+    def _latex(rows, tbl_title):
+        body = "\n".join(rows)
+        return "\n".join([
+            f"% {tbl_title}",
+            r"\begin{table}[h]",
+            r"\centering",
+            r"\caption{" + tbl_title + "}",
+            r"\begin{tabular}{llllll}",
+            r"\hline",
+            COL_HEADER + r" \\",
+            r"\hline",
+            body,
+            r"\hline",
+            r"\end{tabular}",
+            r"\end{table}",
+        ])
+
+    return _latex(val_rows, title + " (Values)"), _latex(var_rows, title + " (Variance)")
 
 
 def write_tables(datasets: list, all_data: dict, out_path: str, set_name: str):
     tables = []
-    tables.append(build_table(
-        datasets, all_data, step_idx=0,
-        title=f"{set_name}: Metrics at First Diffusion Step"))
-    tables.append(build_table(
-        datasets, all_data, step_idx=None,
-        title=f"{set_name}: Metrics Averaged Over All 10 Diffusion Steps"))
+    for step_idx, step_label in [
+        (0,    "Metrics at First Diffusion Step"),
+        (None, "Metrics Averaged Over All 10 Diffusion Steps"),
+    ]:
+        val_tbl, var_tbl = build_table(
+            datasets, all_data, step_idx=step_idx,
+            title=f"{set_name}: {step_label}")
+        tables.extend([val_tbl, var_tbl])
 
     with open(out_path, "w") as fh:
         fh.write("\n\n".join(tables) + "\n")
@@ -658,9 +671,9 @@ COL_HEADER_CT = " & ".join([
 ])
 
 
-def build_table_ctraining(datasets: list, all_data: dict, title: str) -> str:
-    """LaTeX table for ctraining cosine (single step, no step_idx needed)."""
-    rows = []
+def build_table_ctraining(datasets: list, all_data: dict, title: str) -> tuple:
+    """Build two LaTeX tables (values, variance) for ctraining cosine. Returns (val_str, var_str)."""
+    val_rows, var_rows = [], []
     for ds in datasets:
         d = all_data[ds]
         cosine = d.get('cosine')
@@ -669,37 +682,40 @@ def build_table_ctraining(datasets: list, all_data: dict, title: str) -> str:
             all_m,   all_s   = cosine['all_layers'].mean(),  cosine['all_layers'].std()
         else:
             final_m = final_s = all_m = all_s = None
-        row = " & ".join([
-            _escape(ds),
-            fmt(final_m, final_s),
-            fmt(all_m, all_s),
-        ]) + r" \\"
-        rows.append(row)
 
-    body = "\n".join(rows)
-    lines = [
-        f"% {title}",
-        r"\begin{table}[h]",
-        r"\centering",
-        r"\caption{" + title + "}",
-        r"\begin{tabular}{lll}",
-        r"\hline",
-        COL_HEADER_CT + r" \\",
-        r"\hline",
-        body,
-        r"\hline",
-        r"\end{tabular}",
-        r"\end{table}",
-    ]
-    return "\n".join(lines)
+        val_rows.append(" & ".join([
+            _escape(ds), fmt_val(final_m, prec=4), fmt_val(all_m, prec=4),
+        ]) + r" \\")
+        var_rows.append(" & ".join([
+            _escape(ds), fmt_var(final_s), fmt_var(all_s),
+        ]) + r" \\")
+
+    def _latex(rows, tbl_title):
+        body = "\n".join(rows)
+        return "\n".join([
+            f"% {tbl_title}",
+            r"\begin{table}[h]",
+            r"\centering",
+            r"\caption{" + tbl_title + "}",
+            r"\begin{tabular}{lll}",
+            r"\hline",
+            COL_HEADER_CT + r" \\",
+            r"\hline",
+            body,
+            r"\hline",
+            r"\end{tabular}",
+            r"\end{table}",
+        ])
+
+    return _latex(val_rows, title + " (Values)"), _latex(var_rows, title + " (Variance)")
 
 
 def write_tables_ctraining(datasets: list, all_data: dict, out_path: str, set_name: str):
-    table = build_table_ctraining(
+    val_tbl, var_tbl = build_table_ctraining(
         datasets, all_data,
         title=f"{set_name} (ctraining): Cosine Similarity")
     with open(out_path, "w") as fh:
-        fh.write(table + "\n")
+        fh.write("\n\n".join([val_tbl, var_tbl]) + "\n")
     print(f"  Tables written to {out_path}")
 
 
