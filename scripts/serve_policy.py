@@ -100,8 +100,28 @@ def create_policy(args: Args) -> _policy.Policy:
             return create_default_policy(args.env, default_prompt=args.default_prompt)
 
 
+class MESAPolicyWrapper(_policy.Policy):
+    def __init__(self, policy: _policy.Policy):
+        self.policy = policy
+
+    def infer(self, obs: dict) -> dict:
+        new_obs = {
+            "observation/image": obs["images"]["leftshoulder"],
+            "observation/wrist_image": obs["images"]["robot0_eye_in_hand"],
+            "observation/state": obs["state"],
+            "prompt": obs["prompt"],
+        }
+        return self.policy.infer(new_obs)
+
+    @property
+    def metadata(self) -> dict:
+        return self.policy.metadata
+
+
 def main(args: Args) -> None:
     policy = create_policy(args)
+    if isinstance(args.policy, Checkpoint) and "mesa" in args.policy.config:
+        policy = MESAPolicyWrapper(policy)
     policy_metadata = policy.metadata
 
     # Record the policy's behavior.

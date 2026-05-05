@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.mesa_policy as mesa_policy
 import openpi.policies.openarm_policy as openarm_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -384,6 +385,53 @@ class LeRobotOpenArmDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class MESADataConfig(DataConfigFactory):
+    """Config for MESA datasets and inference."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        action_key = "actions_joint_pos"
+        proprio_key = "robot0_joint_pos+robot0_gripper_jaw_width"
+
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "leftshoulder_image",
+                        "observation/wrist_image": "robot0_eye_in_hand_image",
+                        "observation/state": proprio_key,
+                        "actions": action_key,
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+
+        delta_action_mask = _transforms.make_bool_mask(7, -1)
+        data_transforms = _transforms.Group(
+            inputs=[
+                mesa_policy.MESAInputs(model_type=model_config.model_type),
+                _transforms.DeltaActions(delta_action_mask),
+            ],
+            outputs=[
+                _transforms.AbsoluteActions(delta_action_mask),
+                mesa_policy.MESAOutputs(action_dim=8),
+            ],
+        )
+
+        model_transforms = ModelTransformFactory()(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        return dataclasses.replace(
+            base_config,
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=(action_key,),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotFrankaDataConfig(DataConfigFactory):
     """Config for Franka LeRobot datasets with front/side/wrist cameras."""
 
@@ -629,6 +677,57 @@ class TrainConfig:
 
 # Use `get_config` if you need to get a config by name in your code.
 _CONFIGS = [
+    #
+    # MESA configs.
+    #
+    TrainConfig(
+        name="pi0_mesa",
+        model=pi0_config.Pi0Config(action_horizon=20, max_token_len=24),
+        data=MESADataConfig(
+            repo_id="albertwilcox/mesa-70-lerobot",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="mesa"),
+        ),
+        batch_size=1,
+        num_train_steps=50_000,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+    ),
+    TrainConfig(
+        name="pi05_mesa",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=20, max_token_len=60),
+        data=MESADataConfig(
+            repo_id="albertwilcox/mesa-70-lerobot",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="mesa"),
+        ),
+        batch_size=128,
+        num_train_steps=50_000,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+    ),
+    TrainConfig(
+        name="pi0_fast_mesa_70",
+        model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=20),
+        data=MESADataConfig(
+            repo_id="albertwilcox/mesa-70-lerobot",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="mesa"),
+        ),
+        batch_size=128,
+        num_train_steps=50_000,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_fast_base/params"),
+    ),
+    TrainConfig(
+        name="pg_fm_mesa",
+        model=pi0_config.Pi0Config(action_horizon=20, max_token_len=24),
+        data=MESADataConfig(
+            repo_id="albertwilcox/mesa-70-lerobot",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="mesa"),
+        ),
+        batch_size=1,
+        num_train_steps=50_000,
+        weight_loader=weight_loaders.PaliGemmaWeightLoader(),
+    ),
     #
     # Inference Aloha configs.
     #
