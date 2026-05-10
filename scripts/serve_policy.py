@@ -76,11 +76,7 @@ DEFAULT_CHECKPOINT: dict[EnvMode, Checkpoint] = {
 }
 
 
-def create_default_policy(
-    env: EnvMode,
-    *,
-    default_prompt: str | None = None,
-) -> _policy.Policy:
+def create_default_policy(env: EnvMode, *, default_prompt: str | None = None) -> _policy.Policy:
     """Create a default policy for the given environment."""
     if checkpoint := DEFAULT_CHECKPOINT.get(env):
         return _policy_config.create_trained_policy(
@@ -103,7 +99,7 @@ def create_policy(args: Args) -> _policy.Policy:
 class MESAPolicyWrapper(_policy.Policy):
     def __init__(self, policy: _policy.Policy):
         self.policy = policy
-
+    
     def infer(self, obs: dict) -> dict:
         new_obs = {
             "observation/image": obs["images"]["leftshoulder"],
@@ -111,8 +107,9 @@ class MESAPolicyWrapper(_policy.Policy):
             "observation/state": obs["state"],
             "prompt": obs["prompt"],
         }
-        return self.policy.infer(new_obs)
-
+        outputs = self.policy.infer(new_obs)
+        return outputs
+    
     @property
     def metadata(self) -> dict:
         return self.policy.metadata
@@ -120,7 +117,7 @@ class MESAPolicyWrapper(_policy.Policy):
 
 def main(args: Args) -> None:
     policy = create_policy(args)
-    if isinstance(args.policy, Checkpoint) and "mesa" in args.policy.config:
+    if isinstance(args.policy, Checkpoint) and 'mesa' in args.policy.config:
         policy = MESAPolicyWrapper(policy)
     policy_metadata = policy.metadata
 

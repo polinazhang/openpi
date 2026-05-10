@@ -18,14 +18,31 @@ def _parse_image(image) -> np.ndarray:
 
 @dataclasses.dataclass(frozen=True)
 class MESAInputs(transforms.DataTransformFn):
-    """Convert MESA observations into the standard OpenPI policy input structure."""
+    """
+    This class is used to convert inputs to the model to the expected format. It is used for both training and inference.
 
+    For your own dataset, you can copy this class and modify the keys based on the comments below to pipe
+    the correct elements of your dataset into the model.
+    """
+
+    # Determines which model will be used.
+    # Do not change this for your own dataset.
     model_type: _model.ModelType
 
     def __call__(self, data: dict) -> dict:
+        # Possibly need to parse images to uint8 (H,W,C) since LeRobot automatically
+        # stores as float32 (C,H,W), gets skipped for policy inference.
+        # Keep this for your own dataset, but if your dataset stores the images
+        # in a different key than "observation/image" or "observation/wrist_image",
+        # you should change it below.
+        # Pi0 models support three image inputs at the moment: one third-person view,
+        # and two wrist views (left and right). If your dataset does not have a particular type
+        # of image, e.g. wrist images, you can comment it out here and replace it with zeros like we do for the
+        # right wrist image below.
         base_image = _parse_image(data["observation/image"])
         wrist_image = _parse_image(data["observation/wrist_image"])
 
+        # Create inputs dict. Do not change the keys in the dict below.
         inputs = {
             "state": data["observation/state"],
             "image": {
@@ -40,8 +57,14 @@ class MESAInputs(transforms.DataTransformFn):
             },
         }
 
+        # Pad actions to the model action dimension. Keep this for your own dataset.
+        # Actions are only available during training.
         if "actions" in data:
             inputs["actions"] = data["actions"]
+
+        # Pass the prompt (aka language instruction) to the model.
+        # Keep this for your own dataset (but modify the key if the instruction is not
+        # stored in "prompt"; the output dict always needs to have the key "prompt").
         if "prompt" in data:
             inputs["prompt"] = data["prompt"]
 
@@ -50,9 +73,18 @@ class MESAInputs(transforms.DataTransformFn):
 
 @dataclasses.dataclass(frozen=True)
 class MESAOutputs(transforms.DataTransformFn):
-    """Trim padded OpenPI actions back to the MESA controller action dimension."""
+    """
+    This class is used to convert outputs from the model back the the dataset specific format. It is
+    used for inference only.
 
-    action_dim: int = 8
+    For your own dataset, you can copy this class and modify the action dimension based on the comments below.
+    """
+    action_dim: int = 7
 
     def __call__(self, data: dict) -> dict:
-        return {"actions": np.asarray(data["actions"][:, : self.action_dim])}
+        # Only return the first N actions -- since we padded actions above to fit the model action
+        # dimension, we need to now parse out the correct number of actions in the return dict.
+        # For Libero, we only return the first 7 actions (since the rest is padding).
+        # For your own dataset, replace `7` with the action dimension of your dataset.
+        result = {"actions": np.asarray(data["actions"][:, :self.action_dim])}
+        return result

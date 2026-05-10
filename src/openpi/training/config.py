@@ -90,6 +90,9 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+    # Optional LeRobot video decoder backend, e.g. "pyav".
+    # If None, LeRobot uses its default backend.
+    video_backend: str | None = None
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -386,7 +389,16 @@ class LeRobotOpenArmDataConfig(DataConfigFactory):
 
 @dataclasses.dataclass(frozen=True)
 class MESADataConfig(DataConfigFactory):
-    """Config for MESA datasets and inference."""
+    """Config for composing multiple VLA Benchmark subdatasets.
+
+    This allows training on a subset of tasks by combining individual subdatasets
+    that were converted separately from HDF5 files.
+
+    Example usage:
+        MESADataConfig(
+            assets=AssetsConfig(asset_id="mesa_global"),  # Shared norm_stats
+        )
+    """
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -420,6 +432,10 @@ class MESADataConfig(DataConfigFactory):
         )
 
         model_transforms = ModelTransformFactory()(model_config)
+
+        action_sequence_keys = ("actions_joint_pos",)
+
+        # Get base config with shared norm_stats from asset_id
         base_config = self.create_base_config(assets_dirs, model_config)
 
         return dataclasses.replace(
@@ -427,7 +443,7 @@ class MESADataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
-            action_sequence_keys=(action_key,),
+            action_sequence_keys=action_sequence_keys,
         )
 
 
@@ -685,7 +701,10 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(action_horizon=20, max_token_len=24),
         data=MESADataConfig(
             repo_id="albertwilcox/mesa-70-lerobot",
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                video_backend="pyav",
+            ),
             assets=AssetsConfig(asset_id="mesa"),
         ),
         batch_size=1,
@@ -697,7 +716,10 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(pi05=True, action_horizon=20, max_token_len=60),
         data=MESADataConfig(
             repo_id="albertwilcox/mesa-70-lerobot",
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                video_backend="pyav",
+            ),
             assets=AssetsConfig(asset_id="mesa"),
         ),
         batch_size=128,
@@ -709,7 +731,10 @@ _CONFIGS = [
         model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=20),
         data=MESADataConfig(
             repo_id="albertwilcox/mesa-70-lerobot",
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                video_backend="pyav",
+            ),
             assets=AssetsConfig(asset_id="mesa"),
         ),
         batch_size=128,
@@ -721,13 +746,18 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(action_horizon=20, max_token_len=24),
         data=MESADataConfig(
             repo_id="albertwilcox/mesa-70-lerobot",
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                video_backend="pyav",
+            ),
             assets=AssetsConfig(asset_id="mesa"),
         ),
         batch_size=1,
         num_train_steps=50_000,
         weight_loader=weight_loaders.PaliGemmaWeightLoader(),
     ),
+
+
     #
     # Inference Aloha configs.
     #
