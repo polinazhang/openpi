@@ -24,9 +24,10 @@ from pathlib import Path
 # ============================================================
 
 FRANKA_ROOT  = "/coc/testnvme/xzhang3205/static/franka_corrected"
-OPENARM_ROOT = "/coc/testnvme/xzhang3205/static/openarm_full"
+# OPENARM_ROOT = "/coc/testnvme/xzhang3205/static/openarm_full"
 OOD_ROOT     = "/coc/testnvme/xzhang3205/static/ood_corrected"
-OUTPUT_ROOT  = "/coc/testnvme/xzhang3205/openpi/static_results"
+MESA_ROOT    = "/coc/testnvme/xzhang3205/static/mesa/05-06-0036"
+OUTPUT_ROOT  = "/coc/testnvme/xzhang3205/vla-adaptation/models/openpi/static_results_another"
 
 FRANKA_DATASETS  = ["franka_object", "franka_object_plus", "franka_object_two", "franka_on_top"]
 OPENARM_DATASETS = ["pick_cup", "pour_ice", "use_spoon", "use_steel_spoon"]
@@ -36,6 +37,7 @@ OOD_DATASETS     = [
     "franka_object_vision_ood_addition",
     "franka_object_vision_ood_replace",
 ]
+MESA_DATASETS    = ["mesa-70", "mesa-instance", "mesa-spatial", "mesa-composite"]
 
 NUM_LAYERS      = 18
 NUM_DIFF_STEPS  = 10
@@ -379,6 +381,20 @@ def collect_ood(dataset: str) -> dict:
         'gradient'    : None,   # not saved for ood
         'displacement': load_displacement(root, eps, "perturbance-all"),
     }
+
+
+def collect_mesa(dataset: str) -> dict:
+    root = os.path.join(MESA_ROOT, dataset)
+    metric_dir = os.path.join(root, "perturbance-all")
+    ep_base    = _find_episode_base(metric_dir)
+    eps        = _available_episodes(ep_base) if ep_base else []
+    return {
+        'cosine'      : load_cosine(root, eps, "perturbance-all"),
+        'gradnorm'    : load_gradnorm(root, eps, "perturbance-all"),
+        'gradient'    : None,   # not saved for perturbance-noise mode D
+        'displacement': load_displacement(root, eps, "perturbance-all"),
+    }
+
 
 def collect_franka_ctraining(dataset: str) -> dict:
     root = os.path.join(FRANKA_ROOT, dataset)
@@ -847,13 +863,14 @@ def main():
     warnings.simplefilter("always", RuntimeWarning)
     os.makedirs(OUTPUT_ROOT, exist_ok=True)
 
-    run_set("Franka Full",  FRANKA_DATASETS,  collect_franka,  "franka")
-    run_set("OpenArm Full", OPENARM_DATASETS, collect_openarm, "openarm")
-    run_set("OOD Full",     OOD_DATASETS,     collect_ood,     "ood")
+    # run_set("Franka Full",  FRANKA_DATASETS,  collect_franka,  "franka")
+    # run_set("OpenArm Full", OPENARM_DATASETS, collect_openarm, "openarm")
+    # run_set("OOD Full",     OOD_DATASETS,     collect_ood,     "ood")
+    run_set("MESA",         MESA_DATASETS,    collect_mesa,    "mesa")
 
-    run_set_ctraining("Franka Full",  FRANKA_DATASETS,  collect_franka_ctraining,  "franka")
-    run_set_ctraining("OpenArm Full", OPENARM_DATASETS, collect_openarm_ctraining, "openarm")
-    run_set_ctraining("OOD Full",     OOD_DATASETS,     collect_ood_ctraining,     "ood")
+    # run_set_ctraining("Franka Full",  FRANKA_DATASETS,  collect_franka_ctraining,  "franka")
+    # run_set_ctraining("OpenArm Full", OPENARM_DATASETS, collect_openarm_ctraining, "openarm")
+    # run_set_ctraining("OOD Full",     OOD_DATASETS,     collect_ood_ctraining,     "ood")
 
     print("\nDone.")
 

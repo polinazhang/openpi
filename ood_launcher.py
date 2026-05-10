@@ -69,8 +69,8 @@ if __name__ == "__main__":
     root_dir = Path("/coc/testnvme/xzhang3205/openpi")
     folder_name = "ood_corrected"
 
-    CHECKPOINT_DEFAULT = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
-    CHECKPOINT_INDIST = Path("/coc/testnvme/xzhang3205/openpi/checkpoints/pi05_franka_object_single")
+    CHECKPOINT_DEFAULT = Path("/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/pi05_franka_object/torch_30000")
+    CHECKPOINT_INDIST = Path("/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/pi05_franka_object_single")
 
     # (dataset, checkpoint_dir)
     conditions = [

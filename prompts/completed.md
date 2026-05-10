@@ -122,7 +122,7 @@ For specific contents inside individual trajectory folders, look at the storage 
 
 ## Additional Notes
 
-Some old documentations may still refer to a version of static inference code in openarm/ which is no longer maintained. For this implementation, you should only look at and work in static_inference/. Ignore the openarm/ folder entirely.
+Some old documentations may still refer to a version of static inference code in openarm/ which is no longer maintained and already removed from the codebase. For this implementation, you should only look at and work in static_inference/. Ignore the openarm/ folder entirely.
 
 In the last milestone, which is writing post processing data scripts, you will also want to modify the data processing scripts. For prior milestones, stick to the static inference logic. The new code under static_inference/ should be flat scripts, **NOT** a package. 
 

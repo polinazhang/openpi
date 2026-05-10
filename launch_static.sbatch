@@ -15,17 +15,19 @@ source ~/.bashrc
 set -euo pipefail
 
 export XDG_CACHE_HOME=/coc/testnvme/xzhang3205/.cache
-source /coc/testnvme/xzhang3205/openpi/.venv/bin/activate
-export PYTHONPATH=/coc/testnvme/xzhang3205/openpi/src${PYTHONPATH:+:${PYTHONPATH}}
+OPENPI_ROOT="${OPENPI_ROOT:-/coc/testnvme/xzhang3205/vla-adaptation/models/openpi}"
+source "${OPENPI_ROOT}/.venv/bin/activate"
+export PYTHONPATH="${OPENPI_ROOT}/src:${OPENPI_ROOT}/packages/openpi-client/src${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HOME=/coc/testnvme/xzhang3205/huggingface
 export TRANSFORMERS_CACHE=/coc/testnvme/xzhang3205/huggingface
-export OPENPI_DATA_HOME=/coc/testnvme/xzhang3205/openpi/.cache
+export OPENPI_DATA_HOME="${OPENPI_ROOT}/.cache"
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-DATASET="${DATASET:-franka_object_action_ood}"
+DATASET="${DATASET:-mesa-70}"
 # OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/perturbance-all}"
-CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/mesa/$(date +%m-%d-%H%M)/${DATASET}/perturbance-all}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/mesa/mesa-pi05-torch}"
+MESA_ROOT="${MESA_ROOT:-/coc/testnvme/xzhang3205/vla-adaptation/envs/mesa-env}"
 # METRIC="${METRIC:-gradient}"
 METRIC="${METRIC:-perturbance-noise}"
 # CONDITION="${CONDITION:-training}"
@@ -93,6 +95,7 @@ cmd=(
   --video-backend "${VIDEO_BACKEND}"
   --output-root "${OUTPUT_ROOT}"
   --checkpoint-dir "${CHECKPOINT_DIR}"
+  --mesa-root "${MESA_ROOT}"
 )
 
 if [[ "${MAX_FRAMES}" != "0" ]]; then

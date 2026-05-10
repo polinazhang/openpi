@@ -18,3 +18,6 @@ You should complete all milestones strictly one by one and wait for the user to 
 - Investigate the git changes in the main branch
 - Revert the changes. (pi0_torch.py is already completed but others still needs to be modified.) For each change, make sure it does not affect static-new, and then wipe. If it does affect static-new, stop, describe the situation, and wait for the user's input
 - Run a lightweight test on all 4 modes in static-new (you only need one or two trajectories for this sanity check) to make sure everything is still running, and static_launcher.py can **run in its current form**. You can modify the try mode in the launcher but don't interfere with anything else in the static-new pipeline. 
+
+## Reference
+codex resume 019deaab-fd93-7db3-aba1-c19d8528a1fb

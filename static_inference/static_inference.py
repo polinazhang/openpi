@@ -22,6 +22,8 @@ from openpi.shared import download
 from openpi.training import config as _config
 from openpi.training import data_loader as _data_loader
 
+import mesa_dataset as _mesa_dataset
+
 DATASETS: dict[str, dict[str, str]] = {
     "pick_cup": {
         "repo": "qrafty-ai/tea_pick_cup",
@@ -92,6 +94,34 @@ DATASETS: dict[str, dict[str, str]] = {
         "repo": "franka_object_vision_ood_replace",
         "path": "/coc/testnvme/xzhang3205/lerobot/franka_object_vision_ood_replace",
         "config": "pi05_franka_object",
+    },
+    "mesa-70": {
+        "repo": "mesa",
+        "path": "/coc/testnvme/xzhang3205/lerobot/mesa",
+        "config": "pi05_mesa",
+        "loader": "mesa",
+        "suite": "mesa-70",
+    },
+    "mesa-instance": {
+        "repo": "mesa",
+        "path": "/coc/testnvme/xzhang3205/lerobot/mesa",
+        "config": "pi05_mesa",
+        "loader": "mesa",
+        "suite": "mesa-instance",
+    },
+    "mesa-spatial": {
+        "repo": "mesa",
+        "path": "/coc/testnvme/xzhang3205/lerobot/mesa",
+        "config": "pi05_mesa",
+        "loader": "mesa",
+        "suite": "mesa-spatial",
+    },
+    "mesa-composite": {
+        "repo": "mesa",
+        "path": "/coc/testnvme/xzhang3205/lerobot/mesa",
+        "config": "pi05_mesa",
+        "loader": "mesa",
+        "suite": "mesa-composite",
     },
 }
 
@@ -257,6 +287,12 @@ def parse_args() -> argparse.Namespace:
             "Optional prompt override (train.py-style flag). "
             "When set, replaces sample task/prompt strings before tokenization."
         ),
+    )
+    parser.add_argument(
+        "--mesa-root",
+        type=Path,
+        default=_mesa_dataset.DEFAULT_MESA_ROOT,
+        help="Path to the MESA repo root for stable task suite definition files.",
     )
     return parser.parse_args()
 
@@ -1379,15 +1415,27 @@ def main() -> None:
     checkpoint_path = Path(download.maybe_download(str(args.checkpoint_dir)))
     model = load_model(train_config, checkpoint_path, args.device)
 
-    dataset = _data_loader.create_torch_dataset(
-        data_config,
-        train_config.model.action_horizon,
-        train_config.model,
-        repo_root_override=dataset_cfg["path"],
-    )
-    if hasattr(dataset, "video_backend"):
-        dataset.video_backend = args.video_backend
-        print(f"Using dataset video backend: {dataset.video_backend}")
+    if dataset_cfg.get("loader") == "mesa":
+        dataset = _mesa_dataset.load_mesa_suite_dataset(
+            dataset_root=Path(dataset_cfg["path"]),
+            suite_name=dataset_cfg["suite"],
+            action_horizon=train_config.model.action_horizon,
+            mesa_root=args.mesa_root,
+        )
+        print(
+            "Loaded MESA suite "
+            f"{dataset_cfg['suite']} with {len(dataset.episode_indices)} episodes and {len(dataset)} frames."
+        )
+    else:
+        dataset = _data_loader.create_torch_dataset(
+            data_config,
+            train_config.model.action_horizon,
+            train_config.model,
+            repo_root_override=dataset_cfg["path"],
+        )
+        if hasattr(dataset, "video_backend"):
+            dataset.video_backend = args.video_backend
+            print(f"Using dataset video backend: {dataset.video_backend}")
     transform = build_transform(data_config)
 
     if args.metric == "gradient":

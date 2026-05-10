@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as _datetime
 import os
 import subprocess
 from pathlib import Path
@@ -29,6 +30,7 @@ def submit_job(
     checkpoint_dir: Path,
     skip_frame: int,
     max_frames: int,
+    mesa_root: Path | None = None,
     perturbance_step_num: int = 0,
     perturbance_step_size: float = 1e-2,
     embedding_type: str = "vision",
@@ -52,6 +54,8 @@ def submit_job(
         "PERTURBANCE_STEP_SIZE": str(perturbance_step_size),
         "EMBEDDING_TYPE": embedding_type,
     }
+    if mesa_root is not None:
+        export_vars["MESA_ROOT"] = str(mesa_root)
     export_str = ",".join([f"{k}={v}" for k, v in export_vars.items()])
     cmd = ["sbatch", f"--export=ALL,{export_str}", "launch_static.sbatch"]
     print("Submitting:", " ".join(cmd))
@@ -61,26 +65,38 @@ def submit_job(
 if __name__ == "__main__":
     args = parse_args()
 
-    root_dir = Path("/coc/testnvme/xzhang3205/openpi")
-    folder_name = "franka_corrected"
+    root_dir = Path("/coc/testnvme/xzhang3205/vla-adaptation/models/openpi")
+    # Previous hard-coded run roots are intentionally retained as comments:
+    # folder_name = "franka_corrected"
+    # folder_name = "franka_full"
+    timestamp = _datetime.datetime.now().strftime("%m-%d-%H%M")
+    folder_name = str(Path("mesa") / timestamp)
     checkpoint_dir = Path(
-        os.environ.get("CHECKPOINT_DIR", "/coc/testnvme/xzhang3205/openpi/checkpoints/torch_30000")
+        os.environ.get("CHECKPOINT_DIR", "/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/mesa/mesa-pi05-torch")
     )
+    mesa_root = Path(os.environ.get("MESA_ROOT", "/coc/testnvme/xzhang3205/vla-adaptation/envs/mesa-env"))
 
+    # Previous Franka/OOD datasets are intentionally retained as comments:
+    # datasets = [
+    #     "franka_object",
+    #     "franka_object_plus",
+    #     "franka_object_two",
+    #     "franka_on_top",
+    #     "franka_object_action_ood",
+    #     "franka_object_vision_ood",
+    # ]
     datasets = [
-        "franka_object",
-        "franka_object_plus",
-        "franka_object_two",
-        "franka_on_top",
-        # "franka_object_action_ood",
-        # "franka_object_vision_ood",
+        "mesa-70",
+        "mesa-instance",
+        "mesa-spatial",
+        "mesa-composite",
     ]
     if args.test:
-        folder_name = "test_currentime"
-        datasets = ["franka_object_action_ood"]
+        datasets = ["mesa-70"]
 
     runs = [
-        ("cosine", "cosine", "training", True, True, True),
+        # Previous non-MESA runs are intentionally retained as comments:
+        # ("cosine", "cosine", "training", True, True, True),
         # ("gradient-training", "gradient", "training", False),
         # ("gradient-inference", "gradient", "inference", False),
         # ("perturbance", "perturbance", "training", True),
@@ -90,19 +106,11 @@ if __name__ == "__main__":
 
     # Test mode should finish quickly while still leaving enough processed samples.
     # With skip_frame=200 and max_frames=1200, runs keep at least ~5 evaluated frames.
-    skip_frame = 500 if args.test else 10
-    max_frames = 3000 if args.test else 0
+    skip_frame = 200 if args.test else 10
+    max_frames = 1 if args.test else 0
     if args.test:
-        folder_name = "test_currentime"
-        datasets = ["franka_on_top"]
-        skip_frame = 200
-        max_frames = 1200
-        # 4 metric modes total; gradient needs separate training/inference jobs.
+        # Keep --test to one frame from one MESA suite. Milestone 3 will submit and verify it.
         runs = [
-            ("cosine", "cosine", "training", True, False, False),
-            ("gradient-training", "gradient", "training", False, False, False),
-            ("gradient-inference", "gradient", "inference", False, False, False),
-            ("perturbance", "perturbance", "training", True, False, False),
             ("perturbance-all", "perturbance-noise", "inference", True, True, True),
         ]
 
@@ -121,6 +129,7 @@ if __name__ == "__main__":
                 checkpoint_dir=checkpoint_dir,
                 skip_frame=skip_frame,
                 max_frames=max_frames,
+                mesa_root=mesa_root,
                 perturbance_step_num=0,
                 perturbance_step_size=1e-2,
                 # embedding_type="time",
