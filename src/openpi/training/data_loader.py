@@ -15,6 +15,7 @@ import openpi.models.model as _model
 import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
+import openpi.groot_utils.groot_openpi_dataset as _groot_openpi_dataset
 
 T_co = TypeVar("T_co", covariant=True)
 
@@ -140,6 +141,24 @@ def create_torch_dataset(
         raise ValueError("Repo ID is not set. Cannot create dataset.")
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
+
+    # 1) groot datasets
+    if getattr(data_config, "data_dirs", None):
+        data_dirs = data_config.data_dirs
+        if len(data_dirs) == 1:
+            return _groot_openpi_dataset.GrootOpenpiSingleDataset(
+                dataset_meta=data_dirs[0],
+                action_horizon=action_horizon,
+            )
+        elif len(data_dirs) > 1:
+            return _groot_openpi_dataset.GrootOpenpiMultiDataset(
+                dataset_meta_list=data_dirs,
+                dataset_weights=getattr(data_config, "dataset_weights", None),
+                dataset_weights_alpha=0.4,
+                action_horizon=action_horizon,
+            )
+        else:
+            raise ValueError
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(
         repo_id,
