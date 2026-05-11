@@ -26,6 +26,32 @@ from robocasa.utils.groot_utils.groot_dataset import LeRobotSingleDataset, LeRob
 from robocasa.utils.groot_utils.embodiment_tags import EmbodimentTag
 
 
+BAD_ROBOCASA_EPISODES = {
+    pathlib.Path(
+        "/coc/pskynet4/chuang475/datasets/robocasa/v1.0/target/atomic/CloseBlenderLid/20250822/lerobot"
+    ): {0},
+}
+
+
+def _drop_bad_robocasa_episodes(dataset: LeRobotSingleDataset) -> None:
+    bad_episode_ids = BAD_ROBOCASA_EPISODES.get(dataset.dataset_path.resolve())
+    if not bad_episode_ids:
+        return
+
+    keep_mask = np.array(
+        [int(trajectory_id) not in bad_episode_ids for trajectory_id in dataset.trajectory_ids],
+        dtype=bool,
+    )
+    if keep_mask.all():
+        return
+
+    dropped = dataset.trajectory_ids[~keep_mask]
+    dataset._trajectory_ids = dataset.trajectory_ids[keep_mask]
+    dataset._trajectory_lengths = dataset.trajectory_lengths[keep_mask]
+    dataset._all_steps = dataset._get_all_steps()
+    print(f"Skipping known bad RoboCasa episodes for {dataset.dataset_path}: {dropped.tolist()}")
+
+
 def get_modality_keys(dataset_path: pathlib.Path) -> dict[str, list[str]]:
     """
     Get the modality keys from the dataset path.
@@ -91,6 +117,7 @@ class GrootOpenpiSingleDataset(LeRobotSingleDataset):
             transforms=None,
             filter_key=filter_key,
         )
+        _drop_bad_robocasa_episodes(self)
 
     def __getitem__(self, index: SupportsIndex) -> dict:
         item = super().__getitem__(index)
@@ -175,6 +202,7 @@ class GrootOpenpiMultiDataset(LeRobotMixtureDataset):
                 transforms=None,
                 filter_key=filter_key,
             )
+            _drop_bad_robocasa_episodes(this_dataset)
             datasets.append(this_dataset)
 
         if not dataset_weights:
