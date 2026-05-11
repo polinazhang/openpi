@@ -649,6 +649,7 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             norm_stats=base.norm_stats or fallback_norm_stats,
+            use_quantile_norm=False,
             data_dirs=self.data_dirs,
             dataset_weights=self.dataset_weights,
         )
