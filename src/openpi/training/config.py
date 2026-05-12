@@ -698,9 +698,9 @@ class TrainConfig:
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
 
     # Base directory for config assets (e.g., norm stats).
-    assets_base_dir: str = "/coc/testnvme/xzhang3205/openpi/assets"
+    assets_base_dir: str = "/coc/testnvme/xzhang3205/vla-adaptation/models/openpi/assets"
     # Base directory for checkpoints.
-    checkpoint_base_dir: str = "/coc/testnvme/xzhang3205/openpi/checkpoints"
+    checkpoint_base_dir: str = "/coc/testnvme/xzhang3205/vla-adaptation/models/openpi/checkpoints"
 
     # Random seed that will be used by random generators during training.
     seed: int = 42
