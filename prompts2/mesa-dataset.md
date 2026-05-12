@@ -1,7 +1,7 @@
 Read prompts/completed.md for context. 
 
 I want you to adjust the code run static inference (cosine similarity and on the mesa datasets. You should run mode D only `--metric="perturbance-noise"`, but with all tags on `--save_displacement_trace=True --save_meta=True --save_cosine=True`.
-The results should be stored in `/coc/testnvme/xzhang3205/static/mesa/{mm/dd/time, hours and minutes only}` (the code should create that folder based on current time) 
+The results should be stored in `/coc/testnvme/xzhang3205/static/mesa/{mm-dd-time, hours and minutes only}` (the code should create that folder based on current time) 
 
 `/coc/testnvme/xzhang3205/vla-adaptation/envs/mesa-env/inference_prototype` shows how to load the pi05 mesa checkpoint for inference.
 

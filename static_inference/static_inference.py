@@ -21,9 +21,9 @@ from openpi.models import model as _model
 from openpi.shared import download
 from openpi.shared import normalize as _normalize
 from openpi.training import config as _config
-from openpi.training import data_loader as _data_loader
 
 import mesa_dataset as _mesa_dataset
+import robocasa_dataset as _robocasa_dataset
 
 DATASETS: dict[str, dict[str, str]] = {
     "pick_cup": {
@@ -123,6 +123,27 @@ DATASETS: dict[str, dict[str, str]] = {
         "config": "pi05_mesa",
         "loader": "mesa",
         "suite": "mesa-composite",
+    },
+    "atomic-seen": {
+        "repo": "robocasa",
+        "path": str(_robocasa_dataset.DEFAULT_DATASET_BASE),
+        "config": "pi05_robocasa_target_atomic_composite_seen",
+        "loader": "robocasa",
+        "split": "atomic_seen",
+    },
+    "composite-seen": {
+        "repo": "robocasa",
+        "path": str(_robocasa_dataset.DEFAULT_DATASET_BASE),
+        "config": "pi05_robocasa_target_atomic_composite_seen",
+        "loader": "robocasa",
+        "split": "composite_seen",
+    },
+    "composite-unseen": {
+        "repo": "robocasa",
+        "path": str(_robocasa_dataset.DEFAULT_DATASET_BASE),
+        "config": "pi05_robocasa_target_atomic_composite_seen",
+        "loader": "robocasa",
+        "split": "composite_unseen",
     },
 }
 
@@ -304,6 +325,12 @@ def parse_args() -> argparse.Namespace:
         default=_mesa_dataset.DEFAULT_MESA_ROOT,
         help="Path to the MESA repo root for stable task suite definition files.",
     )
+    parser.add_argument(
+        "--robocasa-base",
+        type=Path,
+        default=_robocasa_dataset.DEFAULT_DATASET_BASE,
+        help="Path to the RoboCasa dataset base containing v1.0/target.",
+    )
     return parser.parse_args()
 
 
@@ -315,6 +342,50 @@ def build_transform(data_config: _config.DataConfig) -> _transforms.DataTransfor
         *data_config.model_transforms.inputs,
     ]
     return _transforms.compose(steps)
+
+
+def pad_robocasa_override_norm_stats_if_needed(
+    norm_stats: dict[str, _normalize.NormStats],
+    *,
+    target_dim: int,
+    source: Path,
+) -> dict[str, _normalize.NormStats]:
+    """Pad explicit RoboCasa norm-stat overrides only when too short for pre-normalization tensors."""
+    patched = dict(norm_stats)
+    for key in ("state", "actions"):
+        stats = patched.get(key)
+        if stats is None:
+            continue
+
+        mean = np.asarray(stats.mean)
+        std = np.asarray(stats.std)
+        current_dim = int(mean.shape[-1])
+        if current_dim >= target_dim:
+            continue
+
+        pad_width = [(0, 0)] * mean.ndim
+        pad_width[-1] = (0, target_dim - current_dim)
+
+        patched[key] = _normalize.NormStats(
+            mean=np.pad(mean, pad_width, constant_values=0.0),
+            std=np.pad(std, pad_width, constant_values=1.0),
+            q01=(
+                np.pad(np.asarray(stats.q01), pad_width, constant_values=0.0)
+                if stats.q01 is not None
+                else None
+            ),
+            q99=(
+                np.pad(np.asarray(stats.q99), pad_width, constant_values=1.0)
+                if stats.q99 is not None
+                else None
+            ),
+        )
+        print(
+            "Padded RoboCasa override norm stats "
+            f"for key={key!r} from dim={current_dim} to dim={target_dim} "
+            f"because override source {source} is too short for the RoboCasa transform path."
+        )
+    return patched
 
 
 def load_model(train_config: _config.TrainConfig, checkpoint_dir: Path, device: str):
@@ -1410,6 +1481,11 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_config = _config.get_config(dataset_cfg["config"])
+    if dataset_cfg.get("loader") == "robocasa":
+        train_config = dataclasses.replace(
+            train_config,
+            data=dataclasses.replace(train_config.data, dataset_soup_keys=None, data_dirs=None),
+        )
     if args.data_default_prompt is not None:
         if not hasattr(train_config.data, "default_prompt"):
             raise ValueError(f"Config {train_config.name} does not support default_prompt override")
@@ -1425,6 +1501,12 @@ def main() -> None:
     if args.norm_stats_dir is not None:
         override_norm_stats_dir = args.norm_stats_dir.expanduser()
         override_norm_stats = _normalize.load(override_norm_stats_dir)
+        if dataset_cfg.get("loader") == "robocasa":
+            override_norm_stats = pad_robocasa_override_norm_stats_if_needed(
+                override_norm_stats,
+                target_dim=train_config.model.action_dim,
+                source=override_norm_stats_dir,
+            )
         data_config = dataclasses.replace(data_config, norm_stats=override_norm_stats)
         final_norm_stats_source = override_norm_stats_dir
     print(f"Final norm stats source: {final_norm_stats_source}")
@@ -1445,7 +1527,21 @@ def main() -> None:
             "Loaded MESA suite "
             f"{dataset_cfg['suite']} with {len(dataset.episode_indices)} episodes and {len(dataset)} frames."
         )
+    elif dataset_cfg.get("loader") == "robocasa":
+        robocasa_base = args.robocasa_base if args.robocasa_base is not None else Path(dataset_cfg["path"])
+        dataset = _robocasa_dataset.load_robocasa_split_dataset(
+            dataset_base=robocasa_base,
+            split=dataset_cfg["split"],
+            action_horizon=train_config.model.action_horizon,
+        )
+        print(
+            "Loaded RoboCasa split "
+            f"{dataset_cfg['split']} with {len(dataset.task_datasets)} tasks, "
+            f"{len(dataset.episode_indices)} episodes, and {len(dataset)} frames."
+        )
     else:
+        from openpi.training import data_loader as _data_loader
+
         dataset = _data_loader.create_torch_dataset(
             data_config,
             train_config.model.action_horizon,

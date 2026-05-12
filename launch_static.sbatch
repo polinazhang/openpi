@@ -23,11 +23,13 @@ export TRANSFORMERS_CACHE=/coc/testnvme/xzhang3205/huggingface
 export OPENPI_DATA_HOME="${OPENPI_ROOT}/.cache"
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-DATASET="${DATASET:-mesa-70}"
+DATASET="${DATASET:-atomic-seen}"
 # OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/franka_full/${DATASET}/gradient-training}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/mesa/$(date +%m-%d-%H%M)/${DATASET}/perturbance-all}"
-CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/mesa/mesa-pi05-torch}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-/coc/testnvme/xzhang3205/static/robocasa/$(date +%m-%d-%H%M)/${DATASET}/perturbance-all}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/base/pi05_base_torch}"
+NORM_STATS_DIR="${NORM_STATS_DIR:-}"
 MESA_ROOT="${MESA_ROOT:-/coc/testnvme/xzhang3205/vla-adaptation/envs/mesa-env}"
+ROBOCASA_BASE="${ROBOCASA_BASE:-/coc/pskynet4/chuang475/datasets/robocasa}"
 # METRIC="${METRIC:-gradient}"
 METRIC="${METRIC:-perturbance-noise}"
 # CONDITION="${CONDITION:-training}"
@@ -96,10 +98,14 @@ cmd=(
   --output-root "${OUTPUT_ROOT}"
   --checkpoint-dir "${CHECKPOINT_DIR}"
   --mesa-root "${MESA_ROOT}"
+  --robocasa-base "${ROBOCASA_BASE}"
 )
 
 if [[ "${MAX_FRAMES}" != "0" ]]; then
   cmd+=(--max-frames "${MAX_FRAMES}")
+fi
+if [[ -n "${NORM_STATS_DIR}" ]]; then
+  cmd+=(--norm-stats-dir "${NORM_STATS_DIR}")
 fi
 if [[ -n "${prompt}" ]]; then
   cmd+=(--data.default_prompt "${prompt}")

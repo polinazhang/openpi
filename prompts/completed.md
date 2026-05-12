@@ -136,3 +136,6 @@ There's already `launch_static.sbatch` for running the 4 datasets and a `static_
 In the python launcher the first few lines should have `folder_name='franka_full'` which I can always manually change later.
 For the test flag, only franka_on_top should be launched, and the folder name should be test_currentime instead of franka_full. The skip frames should be set to very high so that the runs finish quickly (allow at least 5 steps actually computed though, for inference it will become 5*10=50). For the actual launch, keep the skip frame number in the previous code.
 
+## Static inference norm stats override
+
+`static_inference.py` supports an optional `--norm-stats-dir /path/to/stats_dir` argument for runs that need to override the train-config norm stats source. The provided directory must contain `norm_stats.json`. The override replaces the in-memory `data_config.norm_stats` before constructing the static inference transform, so it affects the normalized observations/actions and therefore all static inference metric calculations, including condition-inference. It does not modify the training config, checkpoint, checkpoint assets, or model weights on disk. Use only when the checkpoint genuinely lacks a corresponding usable training assets config.
