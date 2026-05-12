@@ -26,12 +26,10 @@ import openpi.policies.robocasa_policy as robocasa_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
-import openpi.groot_utils.groot_openpi_dataset as _groot_openpi_dataset
 import openpi.training.misc.roboarena_config as roboarena_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as weight_loaders
 import openpi.transforms as _transforms
-from robocasa.utils.dataset_registry import DATASET_SOUP_REGISTRY
 
 ModelType: TypeAlias = _model.ModelType
 # Work around a tyro issue with using nnx.filterlib.Filter directly.
@@ -611,12 +609,21 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
     repo_id: str | None = None
     
     data_dirs: Any | None = None
+    dataset_soup_keys: tuple[str, ...] | None = None
     dataset_weights: list[float] | None = None
     
     action_dim: int | None = None
     
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_dirs = self.data_dirs
+        if data_dirs is None and self.dataset_soup_keys:
+            from robocasa.utils.dataset_registry import DATASET_SOUP_REGISTRY
+
+            data_dirs = []
+            for key in self.dataset_soup_keys:
+                data_dirs.extend(DATASET_SOUP_REGISTRY[key])
+
         repack_transform = _transforms.Group()
 
         data_transforms = _transforms.Group(
@@ -630,18 +637,20 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
 
         # Fallback: if norm_stats not found via assets/repo meta, combine from all data_dirs
         fallback_norm_stats = None
-        if base.norm_stats is None and self.data_dirs and len(self.data_dirs) > 0:
-            if len(self.data_dirs) == 1:
-                d = self.data_dirs[0]
+        if base.norm_stats is None and data_dirs and len(data_dirs) > 0:
+            import openpi.groot_utils.groot_openpi_dataset as _groot_openpi_dataset
+
+            if len(data_dirs) == 1:
+                d = data_dirs[0]
                 norm_stats = _groot_openpi_dataset._load_norm_stats_from_groot_dataset(d)
                 if norm_stats is not None:
                     fallback_norm_stats = norm_stats
                     logging.info(f"Loaded norm stats from local data dir: {d}")
             else:
-                norm_stats = _groot_openpi_dataset._load_norm_stats_from_groot_mixture_dataset(self.data_dirs)
+                norm_stats = _groot_openpi_dataset._load_norm_stats_from_groot_mixture_dataset(data_dirs)
                 if norm_stats is not None:
                     fallback_norm_stats = norm_stats
-                    logging.info(f"Loaded combined norm stats from {len(self.data_dirs)} data dirs")
+                    logging.info(f"Loaded combined norm stats from {len(data_dirs)} data dirs")
  
         return dataclasses.replace(
             base,
@@ -650,7 +659,7 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
             model_transforms=model_transforms,
             norm_stats=base.norm_stats or fallback_norm_stats,
             use_quantile_norm=False,
-            data_dirs=self.data_dirs,
+            data_dirs=data_dirs,
             dataset_weights=self.dataset_weights,
         )
 
@@ -792,7 +801,7 @@ _CONFIGS = [
         ),
         data=LeRobotRobocasaDataConfig(
             repo_id="robocasa_target_atomic_composite_seen",
-            data_dirs=DATASET_SOUP_REGISTRY["target_atomic_seen"] + DATASET_SOUP_REGISTRY["target_composite_seen"],
+            dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
             assets=AssetsConfig(asset_id="robocasa_target_atomic_composite_seen"),
         ),
         assets_base_dir="/coc/testnvme/xzhang3205/vla-adaptation/envs/robocasa/.cache/openpi_assets",
