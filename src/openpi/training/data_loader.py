@@ -15,7 +15,6 @@ import openpi.models.model as _model
 import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
-import openpi.groot_utils.groot_openpi_dataset as _groot_openpi_dataset
 
 T_co = TypeVar("T_co", covariant=True)
 
@@ -144,6 +143,8 @@ def create_torch_dataset(
 
     # 1) groot datasets
     if getattr(data_config, "data_dirs", None):
+        import openpi.groot_utils.groot_openpi_dataset as _groot_openpi_dataset
+
         data_dirs = data_config.data_dirs
         if len(data_dirs) == 1:
             return _groot_openpi_dataset.GrootOpenpiSingleDataset(
