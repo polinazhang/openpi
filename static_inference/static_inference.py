@@ -19,6 +19,7 @@ from tqdm import tqdm
 from openpi import transforms as _transforms
 from openpi.models import model as _model
 from openpi.shared import download
+from openpi.shared import normalize as _normalize
 from openpi.training import config as _config
 from openpi.training import data_loader as _data_loader
 
@@ -252,6 +253,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path(BASE_CHECKPOINT_URI),
         help="Checkpoint directory containing model.safetensors.",
+    )
+    parser.add_argument(
+        "--norm-stats-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional override directory containing norm_stats.json. "
+            "If omitted, norm stats are loaded from the selected train config assets."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -1408,11 +1418,20 @@ def main() -> None:
             data=dataclasses.replace(train_config.data, default_prompt=args.data_default_prompt),
         )
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
-    _norm_stats_path = Path(train_config.assets_dirs) / data_config.asset_id if data_config.asset_id else None
-    print(f"Norm stats path: {_norm_stats_path}")
+    assets_config = getattr(train_config.data, "assets", None)
+    config_assets_dir = getattr(assets_config, "assets_dir", None) or train_config.assets_dirs
+    config_norm_stats_path = Path(config_assets_dir) / data_config.asset_id if data_config.asset_id else None
+    final_norm_stats_source = config_norm_stats_path
+    if args.norm_stats_dir is not None:
+        override_norm_stats_dir = args.norm_stats_dir.expanduser()
+        override_norm_stats = _normalize.load(override_norm_stats_dir)
+        data_config = dataclasses.replace(data_config, norm_stats=override_norm_stats)
+        final_norm_stats_source = override_norm_stats_dir
+    print(f"Final norm stats source: {final_norm_stats_source}")
     if data_config.norm_stats is None:
-        raise SystemExit(f"ERROR: norm stats path not found at {_norm_stats_path}")
+        raise SystemExit(f"ERROR: norm stats path not found at {final_norm_stats_source}")
     checkpoint_path = Path(download.maybe_download(str(args.checkpoint_dir)))
+    print(f"Final checkpoint path: {checkpoint_path}")
     model = load_model(train_config, checkpoint_path, args.device)
 
     if dataset_cfg.get("loader") == "mesa":
