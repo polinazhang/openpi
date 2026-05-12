@@ -15,11 +15,11 @@ CHECKPOINT_PROFILES = {
             "/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/base/pi05_base_torch/assets/franka"
         ),
     },
-    "base_pi05_no_override": {
-        "checkpoint_dir": Path("/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/base/pi05_base_torch"),
+    "finetuned_franka_object_pi05": {
+        "checkpoint_dir": Path("/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/franka/pi05_franka_object_30000"),
         "norm_stats_dir": None,
     },
-    "mesa_pi05_no_override": {
+    "finetuned_mesa_pi05": {
         "checkpoint_dir": Path("/coc/testnvme/xzhang3205/vla-adaptation/checkpoints/openpi/mesa/mesa-pi05-torch"),
         "norm_stats_dir": None,
     },
@@ -29,7 +29,9 @@ CHECKPOINT_PROFILES = {
 RUN_CONFIGS = {
     "robocasa": {
         "folder_type": "robocasa",
-        "checkpoint_profile": "base_pi05_with_franka_stats",
+        "checkpoint_profiles": [
+            "base_pi05_with_franka_stats",
+        ],
         "datasets": [
             "atomic-seen",
             "composite-seen",
@@ -46,7 +48,10 @@ RUN_CONFIGS = {
     },
     "mesa": {
         "folder_type": "mesa",
-        "checkpoint_profile": "mesa_pi05_no_override",
+        "checkpoint_profiles": [
+            "base_pi05_with_franka_stats",
+            "finetuned_mesa_pi05",
+        ],
         "datasets": [
             "mesa-70",
             "mesa-instance",
@@ -64,7 +69,9 @@ RUN_CONFIGS = {
     },
     "franka": {
         "folder_type": "franka",
-        "checkpoint_profile": "base_pi05_no_override",
+        "checkpoint_profiles": [
+            "finetuned_franka_object_pi05",
+        ],
         "datasets": [
             "franka_object",
             "franka_object_plus",
@@ -143,32 +150,33 @@ def submit_job(
 if __name__ == "__main__":
     root_dir = Path("/coc/testnvme/xzhang3205/vla-adaptation/models/openpi")
     timestamp = _datetime.datetime.now().strftime("%m-%d-%H%M")
-    checkpoint_profile_name = ACTIVE_RUN["checkpoint_profile"]
-    folder_name = str(Path(ACTIVE_RUN["folder_type"]) / checkpoint_profile_name / timestamp)
-    checkpoint_profile = CHECKPOINT_PROFILES[checkpoint_profile_name]
 
-    for dataset in ACTIVE_RUN["datasets"]:
-        for mode, metric, condition, save_meta, save_cosine, save_displacement_trace in ACTIVE_RUN["runs"]:
-            submit_job(
-                root_dir=root_dir,
-                folder_name=folder_name,
-                dataset=dataset,
-                mode=mode,
-                metric=metric,
-                condition=condition,
-                save_meta=save_meta,
-                save_cosine=save_cosine,
-                save_displacement_trace=save_displacement_trace,
-                checkpoint_dir=checkpoint_profile["checkpoint_dir"],
-                norm_stats_dir=checkpoint_profile["norm_stats_dir"],
-                skip_frame=ACTIVE_RUN["skip_frame"],
-                max_frames=ACTIVE_RUN["max_frames"],
-                mesa_root=ACTIVE_RUN["mesa_root"],
-                robocasa_base=ACTIVE_RUN["robocasa_base"],
-                perturbance_step_num=0,
-                perturbance_step_size=1e-2,
-                # embedding_type="time",
-                # embedding_type="vision+action",
-                # embedding_type="vision+action+time",
-                embedding_type=ACTIVE_RUN["embedding_type"],
-            )
+    for checkpoint_profile_name in ACTIVE_RUN["checkpoint_profiles"]:
+        folder_name = str(Path(ACTIVE_RUN["folder_type"]) / checkpoint_profile_name / timestamp)
+        checkpoint_profile = CHECKPOINT_PROFILES[checkpoint_profile_name]
+
+        for dataset in ACTIVE_RUN["datasets"]:
+            for mode, metric, condition, save_meta, save_cosine, save_displacement_trace in ACTIVE_RUN["runs"]:
+                submit_job(
+                    root_dir=root_dir,
+                    folder_name=folder_name,
+                    dataset=dataset,
+                    mode=mode,
+                    metric=metric,
+                    condition=condition,
+                    save_meta=save_meta,
+                    save_cosine=save_cosine,
+                    save_displacement_trace=save_displacement_trace,
+                    checkpoint_dir=checkpoint_profile["checkpoint_dir"],
+                    norm_stats_dir=checkpoint_profile["norm_stats_dir"],
+                    skip_frame=ACTIVE_RUN["skip_frame"],
+                    max_frames=ACTIVE_RUN["max_frames"],
+                    mesa_root=ACTIVE_RUN["mesa_root"],
+                    robocasa_base=ACTIVE_RUN["robocasa_base"],
+                    perturbance_step_num=0,
+                    perturbance_step_size=1e-2,
+                    # embedding_type="time",
+                    # embedding_type="vision+action",
+                    # embedding_type="vision+action+time",
+                    embedding_type=ACTIVE_RUN["embedding_type"],
+                )
