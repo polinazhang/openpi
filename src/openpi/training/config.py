@@ -613,11 +613,12 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
     dataset_weights: list[float] | None = None
     
     action_dim: int | None = None
+    load_dataset_norm_stats: bool = True
     
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_dirs = self.data_dirs
-        if data_dirs is None and self.dataset_soup_keys:
+        if self.load_dataset_norm_stats and data_dirs is None and self.dataset_soup_keys:
             from robocasa.utils.dataset_registry import DATASET_SOUP_REGISTRY
 
             data_dirs = []
@@ -802,7 +803,8 @@ _CONFIGS = [
         data=LeRobotRobocasaDataConfig(
             repo_id="robocasa_target_atomic_composite_seen",
             dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
-            assets=AssetsConfig(asset_id="franka"),
+            assets=AssetsConfig(asset_id="franka_robocasa_padded"),
+            load_dataset_norm_stats=False,
         ),
         batch_size=64,
         num_workers=4,
