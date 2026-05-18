@@ -802,9 +802,8 @@ _CONFIGS = [
         data=LeRobotRobocasaDataConfig(
             repo_id="robocasa_target_atomic_composite_seen",
             dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
-            assets=AssetsConfig(asset_id="robocasa_target_atomic_composite_seen"),
+            assets=AssetsConfig(asset_id="franka"),
         ),
-        assets_base_dir="/coc/testnvme/xzhang3205/vla-adaptation/envs/robocasa/.cache/openpi_assets",
         batch_size=64,
         num_workers=4,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
