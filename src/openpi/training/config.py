@@ -794,6 +794,8 @@ _CONFIGS = [
         num_train_steps=50_000,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
+    ##### For static inference on base pi05
+    ### asset_id="franka_robocasa_padded" is norm stats for the base model, not the robocasa-trained models
     TrainConfig(
         name="pi05_robocasa_target_atomic_composite_seen",
         model=pi0_config.Pi0Config(
@@ -810,6 +812,43 @@ _CONFIGS = [
         num_workers=4,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
+    ##### For inference/evaluation of any robocasa checkpoint
+    TrainConfig(
+        name="pi05_robocasa_checkpoint",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            max_token_len=200,
+        ),
+        data=LeRobotRobocasaDataConfig(
+            repo_id="robocasa_target_atomic_composite_seen",
+            dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
+            assets=AssetsConfig(asset_id="."),
+            load_dataset_norm_stats=False,
+        ),
+        batch_size=64,
+        num_workers=4,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+    ),
+    ##### For robocasa fine-tuning from configurable group/task/demo
+    # Defaults here are placeholders. The launcher (train_launcher/launch_robocasa.py) overrides
+    # data.repo_id, data.data_dirs_json, weight_loader.params_path, and exp_name per run.
+    TrainConfig(
+        name="pi05_robocasa_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            max_token_len=200,
+        ),
+        data=LeRobotRobocasaDataConfig(
+            repo_id="robocasa_finetune_placeholder",
+            load_dataset_norm_stats=False,
+        ),
+        checkpoint_base_dir="/coc/testnvme/xzhang3205/checkpoints/robocasa",
+        batch_size=64,
+        num_workers=4,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+    ),
+    ##### For static inference on pretrained robocasa pi05
+    #### Polina should remember to add this
     TrainConfig(
         name="pi0_fast_mesa_70",
         model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=20),

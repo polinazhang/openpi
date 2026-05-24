@@ -1,0 +1,79 @@
+# train_launcher/config.yaml
+
+defaults:
+  base_config_name: pi05_robocasa_finetune
+  checkpoint_save_base_dir: /coc/testnvme/xzhang3205/checkpoints/robocasa
+  start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi05_pretrain_human300
+  ckpt_tag: pi05_robocasa
+  num_demos: 100
+  compute_norm_stats: true
+
+slurm:
+  partition: kira-lab
+  qos: long
+  gpus: "a40:16"
+  cpus_per_task: 8
+  mem_per_gpu: 45G
+  exclude: "clippy"
+
+groups:
+  # Robocasa in distribution tasks (300)
+  # TRAIN GROUP A (overlap-allowed):
+  # Exact set definition:
+  #   all tasks that have a non-empty `pretrain` split in
+  #   robocasa/utils/dataset_registry.py
+  # Cardinality in current registry snapshot: 300
+  # Overlap with eval_target_50: 34 tasks (intentional)
+  pretrain_all_300:
+    max_index: 300
+  # TRAIN GROUP B (strictly disjoint from eval):
+  # Exact set definition:
+  #   pretrain_all_300 - eval_target_50
+  # Cardinality in current registry snapshot: 266
+  # Overlap with eval_target_50: 0 tasks
+  pretrain_only_266:
+    max_index: 266
+  # Robocasa OOD tasks (50)
+  # Exact set = TARGET_TASKS.atomic_seen
+  atomic_seen:
+    max_index: 18
+  # Exact set = TARGET_TASKS.composite_seen
+  composite_seen:
+    max_index: 16
+  # Exact set = TARGET_TASKS.composite_unseen
+  composite_unseen:
+    max_index: 16
+  # Optional convenience alias:
+  # eval_target_50 = atomic_seen ∪ composite_seen ∪ composite_unseen
+  eval_target_50:
+    max_index: 50
+
+
+# Available groups: pretrain_all_300, pretrain_only_266, atomic_seen, composite_seen, composite_unseen, eval_target_50
+
+runs:
+  # single task example
+  - name: atomic_single # this should only be used as the slurm job name
+    group: atomic_seen
+    task_range: "7"
+
+  # multi task example
+  - name: atomic_multiple
+    group: atomic_seen
+    task_range: "1-10"
+
+  # full train set (overlap-allowed)
+  - name: train_all
+    group: pretrain_all_300
+    task_range: "1-300"
+
+  # full train set (disjoint from eval target set)
+  - name: train_all_non_overlap
+    group: pretrain_only_266
+    task_range: "1-266"
+
+    ##### Just to show this kind of override is available #####
+
+    # num_demos: 200
+    # start_checkpoint: /path
+    # ckpt_tag: pi05_another
