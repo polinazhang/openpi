@@ -6,6 +6,7 @@ ood/example_images
 ood/
 mesa_download.py
 static_results_another
+prompts2/reference
 
 # Data directories.
 assets/

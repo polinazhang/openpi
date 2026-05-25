@@ -4,6 +4,7 @@ import abc
 from collections.abc import Sequence
 import dataclasses
 import difflib
+import json
 import logging
 import pathlib
 from typing import Any, Literal, Protocol, TypeAlias
@@ -609,6 +610,7 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
     repo_id: str | None = None
     
     data_dirs: Any | None = None
+    data_dirs_json: str | None = None
     dataset_soup_keys: tuple[str, ...] | None = None
     dataset_weights: list[float] | None = None
     
@@ -618,6 +620,21 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_dirs = self.data_dirs
+        if self.data_dirs_json is not None:
+            if data_dirs is not None:
+                raise ValueError("Cannot set both data_dirs and data_dirs_json.")
+            json_path = pathlib.Path(self.data_dirs_json)
+            if not json_path.is_file():
+                raise ValueError(f"data_dirs_json file not found: {json_path}")
+            try:
+                data_dirs = json.loads(json_path.read_text())
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON in data_dirs_json file '{json_path}': {exc}") from exc
+            if not isinstance(data_dirs, list):
+                raise ValueError("data_dirs_json must decode to a JSON list.")
+            if not all(isinstance(item, dict) for item in data_dirs):
+                raise ValueError("data_dirs_json list items must be JSON objects.")
+
         if self.load_dataset_norm_stats and data_dirs is None and self.dataset_soup_keys:
             from robocasa.utils.dataset_registry import DATASET_SOUP_REGISTRY
 
@@ -813,6 +830,8 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
     ##### For inference/evaluation of any robocasa checkpoint
+    # Uses checkpoint-provided norm stats under <checkpoint>/assets.
+    # Fall back mechanism is actually the same with pi05_robocasa_finetune, shall I merge?
     TrainConfig(
         name="pi05_robocasa_checkpoint",
         model=pi0_config.Pi0Config(
@@ -830,8 +849,7 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
     ##### For robocasa fine-tuning from configurable group/task/demo
-    # Defaults here are placeholders. The launcher (train_launcher/launch_robocasa.py) overrides
-    # data.repo_id, data.data_dirs_json, weight_loader.params_path, and exp_name per run.
+    # Defaults here are placeholders so that the program loads the assets inside the checkpoint path
     TrainConfig(
         name="pi05_robocasa_finetune",
         model=pi0_config.Pi0Config(
@@ -840,11 +858,14 @@ _CONFIGS = [
         ),
         data=LeRobotRobocasaDataConfig(
             repo_id="robocasa_finetune_placeholder",
+            dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
+            assets=AssetsConfig(asset_id="."),
             load_dataset_norm_stats=False,
         ),
         checkpoint_base_dir="/coc/testnvme/xzhang3205/checkpoints/robocasa",
         batch_size=64,
         num_workers=4,
+        fsdp_devices=8,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
     ##### For static inference on pretrained robocasa pi05
