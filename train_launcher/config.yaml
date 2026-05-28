@@ -2,7 +2,7 @@
 
 defaults:
   base_config_name: pi05_robocasa_finetune
-  checkpoint_save_base_dir: /coc/testnvme/xzhang3205/checkpoints/robocasa
+  checkpoint_save_base_dir: /coc/testnvme/ryakunin3/checkpoints/robocasa
   start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi05_pretrain_human300/multitask_learning/75000
   ckpt_tag: pi05_robocasa
   num_demos: 100

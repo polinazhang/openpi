@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=robocasa-finetune
-#SBATCH --output=/coc/testnvme/xzhang3205/vla-adaptation/models/openpi/results/finetune/robocasa-finetune-%J.out
-#SBATCH --error=/coc/testnvme/xzhang3205/vla-adaptation/models/openpi/results/finetune/robocasa-finetune-%J.err
+#SBATCH --output=/coc/testnvme/ryakunin3/vla-adaptation/models/openpi/results/finetune/robocasa-finetune-%J.out
+#SBATCH --error=/coc/testnvme/ryakunin3/vla-adaptation/models/openpi/results/finetune/robocasa-finetune-%J.err
 #SBATCH --partition="kira-lab"
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
@@ -14,10 +14,10 @@
 
 set -euo pipefail
 
-OPENPI_ROOT="${OPENPI_ROOT:-/coc/testnvme/xzhang3205/vla-adaptation/models/openpi}"
+OPENPI_ROOT="${OPENPI_ROOT:-/coc/testnvme/ryakunin3/vla-adaptation/models/openpi}"
 cd "${OPENPI_ROOT}"
 source /coc/testnvme/xzhang3205/miniconda3/etc/profile.d/conda.sh
-conda activate robocasa
+conda activate /coc/testnvme/xzhang3205/conda_envs/robocasa
 export PYTHONPATH="${OPENPI_ROOT}/src:${OPENPI_ROOT}/packages/openpi-client/src:${PYTHONPATH:-}"
 
 python scripts/train.py "$RUN_BASE_CONFIG" \
