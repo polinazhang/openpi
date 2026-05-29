@@ -261,7 +261,9 @@ def _expand_and_validate(cfg: dict[str, Any], timestamp: str) -> list[dict[str, 
                 f"{group_name}/{idx}_{task_name_sanitized}/"
                 f"demo{num_demos}_{ckpt_tag}_{timestamp}"
             )
-            run_dir = checkpoint_save_base_dir / exp_name
+            # Mirror scripts/train.py checkpoint_dir layout (<base>/<name>/<exp_name>)
+            # so meta artifacts land alongside the actual checkpoint output.
+            run_dir = checkpoint_save_base_dir / base_config_name / exp_name
 
             dataset_meta = build_meta(task_name=task_name, group_name=group_name, num_demos=num_demos)
 

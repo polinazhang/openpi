@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --qos="long"
 #SBATCH --time="6-00:00:00"
-#SBATCH --exclude="clippy"
+#SBATCH --exclude="sonny"
 #SBATCH --mem-per-gpu=45G
 
 set -euo pipefail

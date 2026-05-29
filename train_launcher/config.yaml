@@ -2,10 +2,10 @@
 
 defaults:
   base_config_name: pi05_robocasa_finetune
-  checkpoint_save_base_dir: /coc/testnvme/xzhang3205/checkpoints/robocasa
+  checkpoint_save_base_dir: /coc/pskynet4/xzhang3205/robocasa
   start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi05_pretrain_human300/multitask_learning/75000
   ckpt_tag: pi05_robocasa
-  num_demos: 100
+  num_demos: 150
   compute_norm_stats: false
 
 slurm:
@@ -15,9 +15,9 @@ slurm:
   ntasks-per-node: 8
   cpus-per-task: 8
   cpus_per_task: 8
-  time: "3-00:00:00"
+  time: "7-00:00:00"
   mem_per_gpu: 45G
-  exclude: "clippy"
+  exclude: "sonny"
 
 groups:
   # Robocasa in distribution tasks (300)
@@ -56,14 +56,14 @@ groups:
 
 runs:
   # single task example
-  - name: atomic_single # this should only be used as the slurm job name
-    group: atomic_seen
-    task_range: "2"
-
-  # # multi task example
-  # - name: atomic_multiple
+  # - name: atomic_single # this should only be used as the slurm job name
   #   group: atomic_seen
-  #   task_range: "1-10"
+  #   task_range: "2"
+
+  # multi task example
+  - name: atomic_multiple
+    group: atomic_seen
+    task_range: "3-10"
 
   # # full train set (overlap-allowed)
   # - name: train_all

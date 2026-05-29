@@ -171,7 +171,13 @@ def _normalize_camera_key(camera: str) -> str:
 
 
 class _RobocasaTaskDataset:
-    def __init__(self, task_root: TaskDatasetRoot, action_horizon: int, task_offset: int) -> None:
+    def __init__(
+        self,
+        task_root: TaskDatasetRoot,
+        action_horizon: int,
+        task_offset: int,
+        max_episodes: int | None = None,
+    ) -> None:
         self.task_root = task_root
         self.root = task_root.dataset_root.expanduser().resolve()
         self.action_horizon = int(action_horizon)
@@ -190,6 +196,11 @@ class _RobocasaTaskDataset:
         ]
         if bad_episode_ids:
             print(f"Skipping known bad RoboCasa episodes for {self.root}: {sorted(bad_episode_ids)}")
+
+        if max_episodes is not None:
+            if max_episodes < 0:
+                raise ValueError(f"max_episodes must be non-negative, got {max_episodes}")
+            episode_rows = episode_rows[:max_episodes]
 
         self.episode_indices = [int(row["episode_index"]) for row in episode_rows]
         self.episode_lengths = [int(row["length"]) for row in episode_rows]
@@ -286,16 +297,37 @@ class _RobocasaTaskDataset:
 
 
 class RobocasaSplitDataset:
-    def __init__(self, *, dataset_base: Path, split: str, action_horizon: int) -> None:
+    def __init__(
+        self,
+        *,
+        dataset_base: Path,
+        split: str,
+        action_horizon: int,
+        tasks_override: list[str] | None = None,
+        max_episodes_per_task: int | None = None,
+    ) -> None:
         self.dataset_base = _resolve_dataset_base(dataset_base)
         self.split = normalize_split_name(split)
         self.action_horizon = int(action_horizon)
-        self.tasks = TARGET_SPLITS[self.split]
+        if tasks_override is not None:
+            if not tasks_override:
+                raise ValueError("tasks_override must be a non-empty list when provided.")
+            split_tasks = set(TARGET_SPLITS[self.split])
+            unknown = [task for task in tasks_override if task not in split_tasks]
+            if unknown:
+                raise KeyError(
+                    f"Tasks {unknown!r} are not part of RoboCasa split {self.split!r}. "
+                    f"Valid tasks: {sorted(split_tasks)}"
+                )
+            self.tasks = list(tasks_override)
+        else:
+            self.tasks = list(TARGET_SPLITS[self.split])
         self.task_datasets = [
             _RobocasaTaskDataset(
                 _task_dataset_root(self.dataset_base, self.split, task),
                 action_horizon=self.action_horizon,
                 task_offset=task_offset,
+                max_episodes=max_episodes_per_task,
             )
             for task_offset, task in enumerate(self.tasks)
         ]
@@ -326,9 +358,13 @@ def load_robocasa_split_dataset(
     dataset_base: Path,
     split: str,
     action_horizon: int,
+    tasks_override: list[str] | None = None,
+    max_episodes_per_task: int | None = None,
 ) -> RobocasaSplitDataset:
     return RobocasaSplitDataset(
         dataset_base=dataset_base,
         split=split,
         action_horizon=action_horizon,
+        tasks_override=tasks_override,
+        max_episodes_per_task=max_episodes_per_task,
     )

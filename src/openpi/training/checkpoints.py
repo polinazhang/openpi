@@ -17,12 +17,17 @@ import openpi.training.data_loader as _data_loader
 import openpi.training.utils as training_utils
 
 
+def _has_checkpoint_steps(checkpoint_dir: epath.Path) -> bool:
+    # Orbax stores checkpoints as numerically-named subdirectories (one per step).
+    return any(child.is_dir() and child.name.isdigit() for child in checkpoint_dir.iterdir())
+
+
 def initialize_checkpoint_dir(
     checkpoint_dir: epath.Path | str, *, keep_period: int | None, overwrite: bool, resume: bool
 ) -> tuple[ocp.CheckpointManager, bool]:
     checkpoint_dir = epath.Path(checkpoint_dir).resolve()
     resuming = False
-    if checkpoint_dir.exists():
+    if checkpoint_dir.exists() and _has_checkpoint_steps(checkpoint_dir):
         if overwrite:
             checkpoint_dir.rmtree()
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -31,8 +36,8 @@ def initialize_checkpoint_dir(
             resuming = True
         else:
             raise FileExistsError(
-                f"Checkpoint directory {checkpoint_dir} already exists. Use --overwrite or --resume "
-                "to indicate how to handle it."
+                f"Checkpoint directory {checkpoint_dir} already contains checkpoints. "
+                "Use --overwrite or --resume to indicate how to handle it."
             )
 
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -331,6 +331,35 @@ def parse_args() -> argparse.Namespace:
         default=_robocasa_dataset.DEFAULT_DATASET_BASE,
         help="Path to the RoboCasa dataset base containing v1.0/target.",
     )
+    parser.add_argument(
+        "--robocasa-task",
+        type=str,
+        default=None,
+        help="Restrict the selected RoboCasa split to a single task name (ignored by non-robocasa loaders).",
+    )
+    parser.add_argument(
+        "--robocasa-max-episodes",
+        type=int,
+        default=None,
+        help="Cap episodes per RoboCasa task (ignored by non-robocasa loaders).",
+    )
+    parser.add_argument(
+        "--config-name",
+        type=str,
+        default=None,
+        help="Override the train config name selected by --dataset (e.g. pi05_robocasa_checkpoint).",
+    )
+    parser.add_argument(
+        "--data.assets.assets-dir",
+        dest="data_assets_assets_dir",
+        type=Path,
+        default=None,
+        help=(
+            "Override data.assets.assets_dir before data_config is built. "
+            "Needed when the config's default norm_stats file is a placeholder "
+            "(e.g. pi05_robocasa_checkpoint expects <assets-dir>/norm_stats.json)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1480,11 +1509,19 @@ def main() -> None:
     output_dir = output_root / args.dataset
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train_config = _config.get_config(dataset_cfg["config"])
+    train_config = _config.get_config(args.config_name or dataset_cfg["config"])
     if dataset_cfg.get("loader") == "robocasa":
         train_config = dataclasses.replace(
             train_config,
             data=dataclasses.replace(train_config.data, dataset_soup_keys=None, data_dirs=None),
+        )
+    if args.data_assets_assets_dir is not None:
+        assets_cfg = dataclasses.replace(
+            train_config.data.assets, assets_dir=str(args.data_assets_assets_dir.expanduser())
+        )
+        train_config = dataclasses.replace(
+            train_config,
+            data=dataclasses.replace(train_config.data, assets=assets_cfg),
         )
     if args.data_default_prompt is not None:
         if not hasattr(train_config.data, "default_prompt"):
@@ -1533,6 +1570,8 @@ def main() -> None:
             dataset_base=robocasa_base,
             split=dataset_cfg["split"],
             action_horizon=train_config.model.action_horizon,
+            tasks_override=[args.robocasa_task] if args.robocasa_task else None,
+            max_episodes_per_task=args.robocasa_max_episodes,
         )
         print(
             "Loaded RoboCasa split "

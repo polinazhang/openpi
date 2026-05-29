@@ -61,8 +61,8 @@ Canonical groups:
 3. Expands each run into concrete run units.
 4. Validates the full batch before any submission.
 5. If valid and not dry-run:
-- creates run dir:
-  `checkpoint_save_base_dir/<group>/<idx>_<task_name>/demo<num_demos>_<ckpt_tag>_<timestamp>/`
+- creates run dir (mirrors `scripts/train.py` checkpoint layout):
+  `checkpoint_save_base_dir/<base_config_name>/<group>/<idx>_<task_name>/demo<num_demos>_<ckpt_tag>_<timestamp>/`
 - writes `dataset_meta.json` (JSON list with one meta dict)
 - writes `run_config.json`
 - submits one `sbatch` job per run unit.
@@ -131,5 +131,5 @@ Typical failures are explicit and include run/group/task context:
 
 ## Paths and Logs
 
-- checkpoint/artifact root: `/coc/testnvme/xzhang3205/checkpoints/robocasa`
+- checkpoint/artifact root: `/coc/pskynet4/xzhang3205/robocasa`
 - slurm logs: `results/finetune/<run-name>-%J.out|err`
