@@ -1,10 +1,10 @@
 # train_launcher/config.yaml
 
 defaults:
-  base_config_name: pi05_robocasa_finetune
+  base_config_name: pi0_robocasa_finetune
   checkpoint_save_base_dir: /coc/testnvme/ryakunin3/checkpoints/robocasa
-  start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi05_pretrain_human300/multitask_learning/75000
-  ckpt_tag: pi05_robocasa
+  start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi0/pi0_robocasa_pretrain_human300/multitask_learning/75000
+  ckpt_tag: pi0_robocasa
   num_demos: 100
   compute_norm_stats: false
 
@@ -55,8 +55,8 @@ groups:
 # Available groups: pretrain_all_300, pretrain_only_266, atomic_seen, composite_seen, composite_unseen, eval_target_50
 
 runs:
-  # single task example
-  - name: atomic_single # this should only be used as the slurm job name
+  # single task smoke test for pi0 finetuning
+  - name: pi0_atomic_single # this should only be used as the slurm job name
     group: atomic_seen
     task_range: "2"
 

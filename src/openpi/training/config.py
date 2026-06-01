@@ -848,6 +848,27 @@ _CONFIGS = [
         num_workers=4,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
+    ##### For inference/evaluation of any robocasa pi0 checkpoint
+    # Mirror of pi05_robocasa_checkpoint with pi05=False. Uses checkpoint-provided norm stats
+    # under <checkpoint>/assets (supplied at serve time via --policy.dir); the weight_loader
+    # default is unused for serving. max_token_len=200 matches the pi05 robocasa setup so long
+    # task instructions fit (RoPE -> no length-tied params, so pi0 weights load at any value).
+    TrainConfig(
+        name="pi0_robocasa_checkpoint",
+        model=pi0_config.Pi0Config(
+            pi05=False,
+            max_token_len=200,
+        ),
+        data=LeRobotRobocasaDataConfig(
+            repo_id="robocasa_target_atomic_composite_seen",
+            dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
+            assets=AssetsConfig(asset_id="."),
+            load_dataset_norm_stats=False,
+        ),
+        batch_size=64,
+        num_workers=4,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+    ),
     ##### For robocasa fine-tuning from configurable group/task/demo
     # Defaults here are placeholders so that the program loads the assets inside the checkpoint path
     TrainConfig(
@@ -867,6 +888,29 @@ _CONFIGS = [
         num_workers=4,
         fsdp_devices=8,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+    ),
+    ##### For robocasa fine-tuning of pi0 from configurable group/task/demo
+    # Mirror of pi05_robocasa_finetune with pi05=False and the pi0 base weight loader.
+    # The launcher overrides weight_loader (--weight-loader.params-path=$RUN_START_CHECKPOINT/params),
+    # assets-dir, and checkpoint-base-dir at runtime; the gs:// path is only a parity fallback.
+    # Outputs land in the ryakunin3 space so finetuned pi0 checkpoints stay in our storage.
+    TrainConfig(
+        name="pi0_robocasa_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=False,
+            max_token_len=200,
+        ),
+        data=LeRobotRobocasaDataConfig(
+            repo_id="robocasa_finetune_placeholder",
+            dataset_soup_keys=("target_atomic_seen", "target_composite_seen"),
+            assets=AssetsConfig(asset_id="."),
+            load_dataset_norm_stats=False,
+        ),
+        checkpoint_base_dir="/coc/testnvme/ryakunin3/checkpoints/robocasa",
+        batch_size=64,
+        num_workers=4,
+        fsdp_devices=8,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
     ),
     ##### For static inference on pretrained robocasa pi05
     #### Polina should remember to add this
