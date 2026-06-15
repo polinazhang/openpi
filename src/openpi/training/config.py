@@ -883,10 +883,18 @@ _CONFIGS = [
             assets=AssetsConfig(asset_id="."),
             load_dataset_norm_stats=False,
         ),
-        checkpoint_base_dir="/coc/testnvme/xzhang3205/checkpoints/robocasa",
+        checkpoint_base_dir="/coc/testnvme/ryakunin3/checkpoints/pi05_robocasa",
         batch_size=64,
         num_workers=4,
         fsdp_devices=8,
+        # Checkpoint cadence: save every 1k steps and keep each one permanently
+        # (keep_period == save_interval). num_train_steps=10_001 makes the final
+        # save land at a clean step 10000, yielding exactly 10 checkpoints
+        # (1k, 2k, ..., 10k) and never more. checkpoint_base_dir above is
+        # overridden at launch by --checkpoint-base-dir from config.yaml.
+        num_train_steps=10_001,
+        save_interval=1_000,
+        keep_period=1_000,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
     ),
     ##### For robocasa fine-tuning of pi0 from configurable group/task/demo

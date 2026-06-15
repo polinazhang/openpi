@@ -1,10 +1,13 @@
 # train_launcher/config.yaml
 
 defaults:
-  base_config_name: pi0_robocasa_finetune
-  checkpoint_save_base_dir: /coc/testnvme/ryakunin3/checkpoints/robocasa
-  start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi0/pi0_robocasa_pretrain_human300/multitask_learning/75000
-  ckpt_tag: pi0_robocasa
+  base_config_name: pi05_robocasa_finetune
+  # Mother folder for the robocasa-start scenario. The base-checkpoint scenario
+  # must use a DIFFERENT base dir, e.g. /coc/testnvme/ryakunin3/checkpoints/pi05_base
+  # (paired with ckpt_tag: pi05_base), so the two never share a mother folder.
+  checkpoint_save_base_dir: /coc/testnvme/ryakunin3/checkpoints/pi05_robocasa
+  start_checkpoint: /coc/testnvme/xzhang3205/vla-adaptation/checkpoints/robocasa-multi-models/pi05_pretrain_human300/multitask_learning/75000
+  ckpt_tag: pi05_robocasa
   num_demos: 100
   compute_norm_stats: false
 
@@ -15,7 +18,7 @@ slurm:
   ntasks-per-node: 8
   cpus-per-task: 8
   cpus_per_task: 8
-  time: "3-00:00:00"
+  time: "2-00:00:00"
   mem_per_gpu: 45G
   exclude: "clippy"
 
@@ -55,8 +58,8 @@ groups:
 # Available groups: pretrain_all_300, pretrain_only_266, atomic_seen, composite_seen, composite_unseen, eval_target_50
 
 runs:
-  # single task smoke test for pi0 finetuning
-  - name: pi0_atomic_single # this should only be used as the slurm job name
+  # single task smoke test for pi05 finetuning
+  - name: pi05_atomic_single # this should only be used as the slurm job name
     group: atomic_seen
     task_range: "2"
 
