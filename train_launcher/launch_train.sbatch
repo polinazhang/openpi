@@ -85,4 +85,11 @@ fi
 [[ -n "${RUN_KEEP_PERIOD}" ]] && ARGS+=( --keep-period="${RUN_KEEP_PERIOD}" )
 
 echo "=== launching: python scripts/train.py ${ARGS[*]} ==="
+# srun re-imposes SLURM_EXPORT_ENV (the sbatch --export allowlist, which carries the
+# submission-time PATH) onto the step, CLOBBERING the conda activate above -> the step's
+# `python` reverts to the submitter's PATH (wrong interpreter: no etils/openpi). Unset it
+# so srun propagates THIS (already sanitized + conda-activated) batch env to the step.
+# Safe: the batch env was built from the --export allowlist (no login-env leak) and D-Bus
+# is unset above. Tier-2 finding; reproduced + verified in jm_t2/diag.sbatch.
+unset SLURM_EXPORT_ENV
 srun -u python -u scripts/train.py "${ARGS[@]}"
