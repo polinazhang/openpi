@@ -887,12 +887,16 @@ _CONFIGS = [
         batch_size=64,
         num_workers=4,
         fsdp_devices=8,
+        # atomic_seen campaign (2026-06-18): AdamW weight decay = 1e-6 (was the
+        # negligible 1e-10 AdamW default). >0, so no OOM (see optimizer.py note).
+        optimizer=_optimizer.AdamW(weight_decay=1e-6),
         # Checkpoint cadence: save every 1k steps and keep each one permanently
-        # (keep_period == save_interval). num_train_steps=10_001 makes the final
-        # save land at a clean step 10000, yielding exactly 10 checkpoints
-        # (1k, 2k, ..., 10k) and never more. checkpoint_base_dir above is
+        # (keep_period == save_interval). num_train_steps=20_001 makes the final
+        # save land at a clean step 20000, yielding exactly 20 checkpoints
+        # (1k, 2k, ..., 20k) and never more. checkpoint_base_dir above is
         # overridden at launch by --checkpoint-base-dir from config.yaml.
-        num_train_steps=10_001,
+        # MUST match job_manager config.yaml matrix (target_step / expected_steps).
+        num_train_steps=20_001,
         save_interval=1_000,
         keep_period=1_000,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
