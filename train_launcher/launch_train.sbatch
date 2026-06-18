@@ -92,4 +92,12 @@ echo "=== launching: python scripts/train.py ${ARGS[*]} ==="
 # Safe: the batch env was built from the --export allowlist (no login-env leak) and D-Bus
 # is unset above. Tier-2 finding; reproduced + verified in jm_t2/diag.sbatch.
 unset SLURM_EXPORT_ENV
+# This finetune job is submitted with --mem-per-gpu (=> SLURM_MEM_PER_GPU). In production
+# the submitter is the agent-loop sbatch job (--mem=4G => SLURM_MEM_PER_NODE in ITS env),
+# and that var LEAKS into this nested job's environment. srun treats SLURM_MEM_PER_CPU /
+# _PER_GPU / _PER_NODE as mutually exclusive and dies "...are mutually exclusive" before
+# train.py ever starts. The authoritative spec for THIS job is --mem-per-gpu, so drop the
+# leaked node/cpu mem vars and keep SLURM_MEM_PER_GPU. (Tier-3 finding: only manifests when
+# the wrappers run from inside the loop job, which Tier-2's login-shell driving never did.)
+unset SLURM_MEM_PER_NODE SLURM_MEM_PER_CPU
 srun -u python -u scripts/train.py "${ARGS[@]}"
