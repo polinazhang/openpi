@@ -373,6 +373,155 @@ class PI0Pytorch(nn.Module):
 
         return F.mse_loss(u_t, v_t, reduction="none")
 
+    def _static_velocity_from_embeddings(
+        self,
+        prefix_embs,
+        prefix_pad_masks,
+        prefix_att_masks,
+        suffix_embs,
+        suffix_pad_masks,
+        suffix_att_masks,
+        adarms_cond,
+    ):
+        """Project the model's actual final output to a flow velocity.
+
+        This intentionally exposes only the final model output. Intermediate
+        hidden states have different normalization contracts and are not part
+        of the static-inference metric definition.
+        """
+        if (
+            self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
+            == torch.bfloat16
+        ):
+            prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
+            suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
+
+        pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
+        att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
+
+        (_, suffix_out), _ = self.paligemma_with_expert.forward(
+            attention_mask=att_2d_masks_4d,
+            position_ids=position_ids,
+            past_key_values=None,
+            inputs_embeds=[prefix_embs, suffix_embs],
+            use_cache=False,
+            adarms_cond=[None, adarms_cond],
+        )
+        suffix_out = suffix_out[:, -self.config.action_horizon :].to(dtype=torch.float32)
+        return self.action_out_proj(suffix_out)
+
+    def compute_static_inference_metrics(
+        self,
+        observation,
+        actions,
+        *,
+        num_steps=10,
+        noise=None,
+        metric_dim_mask=None,
+        aligned_to_native_perm=None,
+    ):
+        """Compute final-output flow metrics over a native-coordinate Euler rollout.
+
+        ``actions`` are supplied in the aligned metric layout. The optional
+        permutation converts that layout back to the model's native action
+        coordinates before it is used as a denoising latent. Predictions and
+        targets are converted to the aligned layout only for metric reduction.
+        """
+        if num_steps <= 0:
+            raise ValueError(f"num_steps must be positive, got {num_steps}")
+
+        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=False)
+        device = state.device
+        actions_aligned = actions.to(device=device, dtype=torch.float32)
+        if aligned_to_native_perm is None:
+            perm = torch.arange(actions_aligned.shape[-1], device=device)
+        else:
+            perm = torch.as_tensor(aligned_to_native_perm, dtype=torch.long, device=device)
+        actions_native = actions_aligned[..., perm]
+
+        if noise is None:
+            noise_native = self.sample_noise(actions_native.shape, device)
+        else:
+            noise_native = noise.to(device=device, dtype=torch.float32)
+        target_native = noise_native - actions_native
+
+        # For the supported layouts the permutation is a swap (or identity),
+        # hence it is its own inverse. Compute the inverse explicitly so this
+        # method remains correct for any future permutation.
+        native_to_aligned = torch.argsort(perm)
+        target_aligned = target_native[..., native_to_aligned]
+        if metric_dim_mask is None:
+            dim_mask = torch.ones(actions_aligned.shape[-1], dtype=torch.float32, device=device)
+        else:
+            dim_mask = torch.as_tensor(metric_dim_mask, dtype=torch.float32, device=device)
+        target_metric = target_aligned * dim_mask
+        kept_dim_count = dim_mask.sum().clamp_min(1.0)
+
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, lang_tokens, lang_masks)
+        # embed_prefix concatenates all image tokens before language tokens.
+        vision_end = prefix_embs.shape[1] - lang_tokens.shape[1]
+        vision_base = prefix_embs[:, :vision_end]
+        language_base = prefix_embs[:, vision_end:]
+
+        x_t_native = noise_native.detach()
+        time = torch.tensor(1.0, dtype=torch.float32, device=device)
+        dt = torch.tensor(-1.0 / num_steps, dtype=torch.float32, device=device)
+        cosine_steps = []
+        loss_steps = []
+        vision_gradnorm_steps = []
+        velocity_steps = []
+
+        for _ in range(num_steps):
+            tau = time.expand(actions_native.shape[0])
+            suffix_pack = self.embed_suffix(state, x_t_native, tau)
+            suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = suffix_pack
+
+            vision_delta = torch.zeros_like(vision_base).requires_grad_()
+            prefix_with_delta = torch.cat([vision_base + vision_delta, language_base], dim=1)
+            velocity_native = self._static_velocity_from_embeddings(
+                prefix_with_delta,
+                prefix_pad_masks,
+                prefix_att_masks,
+                suffix_embs,
+                suffix_pad_masks,
+                suffix_att_masks,
+                adarms_cond,
+            )
+            velocity_aligned = velocity_native[..., native_to_aligned]
+            velocity_metric = velocity_aligned * dim_mask
+
+            squared_error = torch.square(velocity_metric - target_metric)
+            loss_per_horizon = squared_error.sum(dim=-1) / kept_dim_count
+            loss_per_example = loss_per_horizon.mean(dim=-1)
+            vision_grad = torch.autograd.grad(loss_per_example.sum(), vision_delta)[0]
+            vision_gradnorm = torch.linalg.vector_norm(vision_grad.flatten(start_dim=1), dim=1)
+
+            dot = torch.sum(velocity_metric * target_metric, dim=-1)
+            velocity_norm = torch.linalg.vector_norm(velocity_metric, dim=-1)
+            target_norm = torch.linalg.vector_norm(target_metric, dim=-1)
+            cosine = dot / (velocity_norm * target_norm + 1e-8)
+
+            cosine_steps.append(cosine.detach())
+            loss_steps.append(loss_per_horizon.detach())
+            vision_gradnorm_steps.append(vision_gradnorm.detach())
+            velocity_steps.append(velocity_metric.detach())
+
+            # The recurrent latent always stays in the model's native action
+            # coordinates. Alignment and masking are metric-only operations.
+            x_t_native = (x_t_native + dt * velocity_native.detach()).detach()
+            time = time + dt
+
+        return {
+            "cosine_steps": cosine_steps,
+            "loss_steps": loss_steps,
+            "vision_gradnorm_steps": vision_gradnorm_steps,
+            "velocity_steps": velocity_steps,
+            "target": target_metric.detach(),
+        }
+
     @torch.no_grad()
     def sample_actions(self, device, observation, noise=None, num_steps=10) -> Tensor:
         """Do a full inference forward and compute the action (batch_size x num_steps x num_motors)"""
