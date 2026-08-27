@@ -39,8 +39,15 @@ def parse_bool(value: str) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=("atomic-seen",), default="atomic-seen")
-    parser.add_argument("--robocasa-base", type=Path, required=True)
-    parser.add_argument("--robocasa-task", required=True)
+    parser.add_argument("--robocasa-base", type=Path, default=None)
+    parser.add_argument("--robocasa-task", default=None)
+    parser.add_argument(
+        "--robocasa-task-dir",
+        type=Path,
+        default=None,
+        help="Load this LeRobot task dir directly, bypassing TARGET_SPLITS validation "
+        "and the v1.0/target layout (overrides --robocasa-base/--robocasa-task)",
+    )
     parser.add_argument("--robocasa-max-episodes", type=int, default=50)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--norm-stats-dir", type=Path, required=True)
@@ -245,13 +252,22 @@ def main() -> None:
     norm_stats = remap.remap_action_norm_stats(norm_stats, spec)
     transform = build_transform(model_config, norm_stats)
 
-    raw_dataset = robocasa_dataset.load_robocasa_split_dataset(
-        dataset_base=args.robocasa_base,
-        split="atomic_seen",
-        action_horizon=model_config.action_horizon,
-        tasks_override=[args.robocasa_task],
-        max_episodes_per_task=args.robocasa_max_episodes,
-    )
+    if args.robocasa_task_dir is not None:
+        raw_dataset = robocasa_dataset.load_robocasa_task_dir_dataset(
+            task_dir=args.robocasa_task_dir,
+            action_horizon=model_config.action_horizon,
+            max_episodes=args.robocasa_max_episodes,
+        )
+    else:
+        if args.robocasa_base is None or args.robocasa_task is None:
+            raise ValueError("--robocasa-base and --robocasa-task are required unless --robocasa-task-dir is given")
+        raw_dataset = robocasa_dataset.load_robocasa_split_dataset(
+            dataset_base=args.robocasa_base,
+            split="atomic_seen",
+            action_horizon=model_config.action_horizon,
+            tasks_override=[args.robocasa_task],
+            max_episodes_per_task=args.robocasa_max_episodes,
+        )
     dataset = remap.RemappedRobocasaDataset(raw_dataset, spec)
 
     output_dir = args.output_root / args.dataset

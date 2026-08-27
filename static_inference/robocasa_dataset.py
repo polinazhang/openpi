@@ -339,6 +339,46 @@ class RobocasaSplitDataset:
             )
         ]
 
+    @classmethod
+    def from_task_dir(
+        cls,
+        *,
+        task_dir: Path,
+        action_horizon: int,
+        max_episodes: int | None = None,
+    ) -> "RobocasaSplitDataset":
+        """Single-task dataset loaded directly from a LeRobot task dir (e.g.
+        ``pretrain/atomic/<Task>/<version>/lerobot``), bypassing TARGET_SPLITS
+        name validation and the hardcoded ``v1.0/target`` root."""
+        task_dir = Path(task_dir).expanduser().resolve()
+        for rel_path in ("meta/info.json", "meta/tasks.jsonl", "meta/episodes.jsonl"):
+            required_path = task_dir / rel_path
+            if not required_path.exists():
+                raise FileNotFoundError(f"Required RoboCasa metadata file missing: {required_path}")
+        dataset = cls.__new__(cls)
+        dataset.dataset_base = task_dir
+        dataset.split = "task_dir"
+        dataset.action_horizon = int(action_horizon)
+        task_root = TaskDatasetRoot(
+            split="task_dir",
+            task=task_dir.parent.parent.name,
+            dataset_root=task_dir,
+            task_family=task_dir.parent.parent.parent.name,
+            version_dir=task_dir.parent,
+        )
+        dataset.tasks = [task_root.task]
+        dataset.task_datasets = [
+            _RobocasaTaskDataset(
+                task_root,
+                action_horizon=dataset.action_horizon,
+                task_offset=0,
+                max_episodes=max_episodes,
+            )
+        ]
+        dataset.cumulative_lengths = np.cumsum([len(d) for d in dataset.task_datasets]).tolist()
+        dataset.episode_indices = [int(e) for e in dataset.task_datasets[0].episode_indices]
+        return dataset
+
     def __len__(self) -> int:
         return self.cumulative_lengths[-1] if self.cumulative_lengths else 0
 
@@ -364,4 +404,17 @@ def load_robocasa_split_dataset(
         action_horizon=action_horizon,
         tasks_override=tasks_override,
         max_episodes_per_task=max_episodes_per_task,
+    )
+
+
+def load_robocasa_task_dir_dataset(
+    *,
+    task_dir: Path,
+    action_horizon: int,
+    max_episodes: int | None = None,
+) -> RobocasaSplitDataset:
+    return RobocasaSplitDataset.from_task_dir(
+        task_dir=task_dir,
+        action_horizon=action_horizon,
+        max_episodes=max_episodes,
     )
