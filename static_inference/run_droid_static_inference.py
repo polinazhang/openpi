@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run OpenPI static inference on one selected DROID trajectory."""
+"""Run OpenPI static inference on selected DROID trajectories."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ REPO_ROOT = Path("/coc/testnvme/xzhang3205/vla-adaptation")
 STATIC_ROOT = REPO_ROOT / "static-inference"
 sys.path[:0] = [str(STATIC_ROOT), str(REPO_ROOT)]
 
-from droid.archive import DroidTrajectory, manifest_entry
+from droid.archive import DroidTrajectory, load_manifest, manifest_entry
 from droid.contracts import (
     droid_action,
     droid_cartesian_action,
@@ -38,9 +38,9 @@ from openpi.shared import normalize as _normalize
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("pi05-base", "pi05-robocasa"), required=True)
+    parser.add_argument("--model", choices=("pi05-base", "pi05-droid", "pi05-robocasa"), required=True)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--trajectory-index", type=int, required=True)
+    parser.add_argument("--trajectory-index", type=int, default=None, help="Process one trajectory; omit to process the entire manifest")
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--norm-stats-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -75,11 +75,11 @@ class RobocasaCheckpointInputs:
 
 
 def build_transform(model_name: str, config: pi0_config.Pi0Config, norm_stats):
-    inputs = DroidInputs(model_type=_model.ModelType.PI05) if model_name == "pi05-base" else RobocasaCheckpointInputs()
+    inputs = DroidInputs(model_type=_model.ModelType.PI05) if model_name in ("pi05-base", "pi05-droid") else RobocasaCheckpointInputs()
     return _transforms.compose(
         [
             inputs,
-            _transforms.Normalize(norm_stats),
+            _transforms.Normalize(norm_stats, use_quantiles=model_name == "pi05-droid"),
             _transforms.ResizeImages(224, 224),
             _transforms.TokenizePrompt(
                 _tokenizer.PaligemmaTokenizer(config.max_token_len),
@@ -121,7 +121,8 @@ def load_model(checkpoint_dir: Path, device: str):
 
 def main() -> None:
     args = parse_args()
-    entry = manifest_entry(args.manifest, args.trajectory_index)
+    entries = (load_manifest(args.manifest)["trajectories"] if args.trajectory_index is None
+               else [manifest_entry(args.manifest, args.trajectory_index)])
     model, config = load_model(args.checkpoint_dir, args.device)
     norm_stats = _normalize.load(args.norm_stats_dir)
     transform = build_transform(args.model, config, norm_stats)
@@ -130,7 +131,15 @@ def main() -> None:
     if args.model == "pi05-robocasa":
         metric_mask = robocasa_model_action_metric_mask(config.action_dim)
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for entry in entries:
+        output_dir = (args.output_dir / f"trajectory_{int(entry['trajectory_index']):03d}"
+                      if args.trajectory_index is None else args.output_dir)
+        print(f"processing trajectory {entry['trajectory_index']}: {output_dir}", flush=True)
+        run_trajectory(args, entry, output_dir, model, config, transform, metric_mask)
+
+
+def run_trajectory(args, entry, output_dir, model, config, transform, metric_mask):
+    output_dir.mkdir(parents=True, exist_ok=True)
     cosines = []
     losses: dict[int, list[np.ndarray]] = defaultdict(list)
     gradnorms: dict[int, list[np.ndarray]] = defaultdict(list)
@@ -144,7 +153,7 @@ def main() -> None:
             frame_count = min(frame_count, args.max_frames)
         for frame in range(frame_count):
             state = droid_state(trajectory.arrays["observation_joint_position"][frame], trajectory.arrays["observation_gripper_position"][frame])
-            if args.model == "pi05-base":
+            if args.model in ("pi05-base", "pi05-droid"):
                 actions = droid_action(
                     trajectory.arrays["action_joint_velocity"][frame : frame + horizon],
                     trajectory.arrays["action_gripper_position"][frame : frame + horizon],
@@ -184,26 +193,26 @@ def main() -> None:
                 targets.append(result["target"].squeeze(0).cpu().numpy())
                 velocities.append(np.stack([value.squeeze(0).cpu().numpy() for value in result["velocity_steps"]]))
 
-    np.save(args.output_dir / "cosine.npy", np.stack(cosines).astype(np.float16))
+    np.save(output_dir / "cosine.npy", np.stack(cosines).astype(np.float16))
     for step, values in sorted(losses.items()):
-        np.save(args.output_dir / f"final_loss_{step}.npy", np.stack(values).astype(np.float32))
+        np.save(output_dir / f"final_loss_{step}.npy", np.stack(values).astype(np.float32))
     for step, values in sorted(gradnorms.items()):
-        np.save(args.output_dir / f"gradnorm_vision_step_{step}.npy", np.stack(values).astype(np.float16))
+        np.save(output_dir / f"gradnorm_vision_step_{step}.npy", np.stack(values).astype(np.float16))
     if args.save_meta:
-        meta = args.output_dir / "meta"
+        meta = output_dir / "meta"
         meta.mkdir(exist_ok=True)
         np.save(meta / "u.npy", np.stack(targets).astype(np.float16))
         np.save(meta / "v.npy", np.stack(velocities).astype(np.float16))
-    (args.output_dir / "trajectory_meta.json").write_text(json.dumps({
+    (output_dir / "trajectory_meta.json").write_text(json.dumps({
         "model": args.model,
-        "trajectory_index": args.trajectory_index,
+        "trajectory_index": entry["trajectory_index"],
         "trajectory_id": entry["trajectory_id"],
         "source_length": entry["length"],
         "action_horizon": config.action_horizon,
         "num_frames_used": frame_count,
         "discarded_tail": min(config.action_horizon - 1, entry["length"]),
         "metric_dims": np.flatnonzero(metric_mask).tolist(),
-        "action_source": ("joint_velocity + gripper_position" if args.model == "pi05-base" else "direct checkpoint-mapped cartesian_velocity + gripper_position"),
+        "action_source": ("joint_velocity + gripper_position" if args.model in ("pi05-base", "pi05-droid") else "direct checkpoint-mapped cartesian_velocity + gripper_position"),
         "language_field": "language_instruction",
     }, indent=2) + "\n")
 
