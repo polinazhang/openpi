@@ -22,6 +22,7 @@ sys.path[:0] = [str(STATIC_ROOT), str(REPO_ROOT)]
 from droid.archive import DroidTrajectory, manifest_entry
 from droid.contracts import (
     droid_action,
+    droid_cartesian_action,
     droid_state,
     pi05_robocasa_state,
     robocasa_model_action,
@@ -143,11 +144,16 @@ def main() -> None:
             frame_count = min(frame_count, args.max_frames)
         for frame in range(frame_count):
             state = droid_state(trajectory.arrays["observation_joint_position"][frame], trajectory.arrays["observation_gripper_position"][frame])
-            action_key = "action_joint_velocity" if args.model == "pi05-base" else "action_joint_position"
-            actions = droid_action(
-                trajectory.arrays[action_key][frame : frame + horizon],
-                trajectory.arrays["action_gripper_position"][frame : frame + horizon],
-            )
+            if args.model == "pi05-base":
+                actions = droid_action(
+                    trajectory.arrays["action_joint_velocity"][frame : frame + horizon],
+                    trajectory.arrays["action_gripper_position"][frame : frame + horizon],
+                )
+            else:
+                actions = droid_cartesian_action(
+                    trajectory.arrays["action_cartesian_velocity"][frame : frame + horizon],
+                    trajectory.arrays["action_gripper_position"][frame : frame + horizon],
+                )
             sample = {
                 "observation/exterior_image_1_left": trajectory.image("exterior_image_1_left", frame),
                 "observation/exterior_image_2_left": trajectory.image("exterior_image_2_left", frame),
@@ -197,7 +203,7 @@ def main() -> None:
         "num_frames_used": frame_count,
         "discarded_tail": min(config.action_horizon - 1, entry["length"]),
         "metric_dims": np.flatnonzero(metric_mask).tolist(),
-        "action_source": ("joint_velocity + gripper_position" if args.model == "pi05-base" else "direct checkpoint-mapped joint_position + gripper_position"),
+        "action_source": ("joint_velocity + gripper_position" if args.model == "pi05-base" else "direct checkpoint-mapped cartesian_velocity + gripper_position"),
         "language_field": "language_instruction",
     }, indent=2) + "\n")
 

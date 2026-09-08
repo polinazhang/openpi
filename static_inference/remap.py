@@ -62,10 +62,16 @@ def _base_spec(name: str, parked: int, *, base: bool, grip_control: bool) -> Rem
 
 
 SPECS = {
+    "arm-gripper": RemapSpec(
+        name="arm-gripper",
+        action_layout=tuple(enumerate((5, 6, 7, 8, 9, 10))) + ((7, 11),),
+        metric_dims=(0, 1, 2, 3, 4, 5, 7),
+        aligned_to_native_perm=tuple(range(ACTION_DIM)),
+    ),
     "robocasa": RemapSpec(
         name="robocasa",
         action_layout=tuple(enumerate((5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4))),
-        metric_dims=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11),
+        metric_dims=(0, 1, 2, 3, 4, 5, 6),
         aligned_to_native_perm=tuple(range(ACTION_DIM)),
     ),
     "base-arm": _base_spec("base-arm", 8, base=False, grip_control=False),
