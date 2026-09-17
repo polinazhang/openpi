@@ -7,6 +7,7 @@ Run this script from the OpenPI uv environment as:
 from __future__ import annotations
 
 import http.server
+import io
 import json
 import logging
 import pathlib
@@ -16,6 +17,23 @@ import threading
 import time
 import traceback
 from typing import Any
+
+
+class _NumpyCompatUnpickler(pickle.Unpickler):
+    """Load NumPy 2.x pickles in the NumPy 1.x OpenPI environment."""
+
+    _MODULE_MAP = {
+        "numpy._core": "numpy.core",
+        "numpy._core.multiarray": "numpy.core.multiarray",
+        "numpy._core.numeric": "numpy.core.numeric",
+    }
+
+    def find_class(self, module: str, name: str) -> Any:
+        return super().find_class(self._MODULE_MAP.get(module, module), name)
+
+
+def _pickle_loads_compat(payload: bytes) -> Any:
+    return _NumpyCompatUnpickler(io.BytesIO(payload)).load()
 
 
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
@@ -145,7 +163,7 @@ class _InferenceHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            req = pickle.loads(self._read_body())
+            req = _pickle_loads_compat(self._read_body())
             if not isinstance(req, dict):
                 raise TypeError(f"expected dict request payload, got {type(req).__name__}")
             if "observation" not in req:

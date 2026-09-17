@@ -10,7 +10,10 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+try:
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+except ModuleNotFoundError:
+    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 CONTINUOUS_REPO = "continuous"
 DISCRETE_REPO = "discrete"

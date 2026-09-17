@@ -21,6 +21,8 @@ from typing import Any
 import cv2
 import numpy as np
 import requests
+from deoxys import config_root as _deoxys_config_root
+from deoxys.utils import YamlConfig as _YamlConfig
 
 
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
@@ -216,11 +218,89 @@ def _wait_for_robot_connection(robot: _franka_interface.FrankaInterface) -> None
     _log("Franka robot is connected.")
 
 
-def _wait_for_reset_confirmation() -> None:
+def _prompt_start_evaluation(base_data_dir: pathlib.Path, suite_name: str) -> bool:
+    save_dir = base_data_dir / suite_name
     while True:
-        answer = input("Please reset the robot. Has the reset finished? y/N ").strip().lower()
+        answer = input(
+            "Do you want to start evaluation? "
+            f"Data will be saved in {save_dir} "
+            "(Y/n) "
+        ).strip().lower()
+        if answer in ("", "y"):
+            return True
+        if answer == "n":
+            return False
+
+
+def _wait_for_safe_to_reset() -> None:
+    while True:
+        answer = input("Is it safe to reset? y/N ").strip().lower()
         if answer == "y":
             return
+
+
+def _run_joint_reset(robot: _franka_interface.FrankaInterface, deadline: float) -> bool:
+    # Keep joint reset behavior aligned with deoxys/examples/reset_robot_joints.py.
+    reset_joint_positions = [
+        0.09162008114028396,
+        -0.19826458111314524,
+        -0.01990020486871322,
+        -2.4732269941140346,
+        -0.01307073642274261,
+        2.30396583422025,
+        0.8480939705504309,
+    ]
+    reset_joint_positions = [
+        e + np.clip(np.random.randn() * 0.005, -0.005, 0.005)
+        for e in reset_joint_positions
+    ]
+    action = reset_joint_positions + [-1.0]
+
+    controller_cfg = _YamlConfig(_deoxys_config_root + "/joint-position-controller.yml").as_easydict()
+    robot_interface = robot._operator.robot_interface
+
+    while True:
+        if time.monotonic() > deadline:
+            return False
+
+        if len(robot_interface._state_buffer) > 0:
+            max_joint_err = np.max(
+                np.abs(
+                    np.array(robot_interface._state_buffer[-1].q)
+                    - np.array(reset_joint_positions)
+                )
+            )
+            if max_joint_err < 1e-3:
+                return True
+
+        robot_interface.control(
+            controller_type="JOINT_POSITION",
+            action=action,
+            controller_cfg=controller_cfg,
+        )
+
+
+def _run_gripper_reset(robot: _franka_interface.FrankaInterface, deadline: float) -> bool:
+    # Keep gripper reset behavior aligned with openteach/reset_gripper.py.
+    robot_interface = robot._operator.robot_interface
+
+    while True:
+        if time.monotonic() > deadline:
+            return False
+
+        last_gripper_q = robot_interface.last_gripper_q
+        if last_gripper_q is not None and last_gripper_q >= 0.07:
+            return True
+
+        robot_interface.gripper_control(-1)
+        time.sleep(0.01)
+
+
+def _run_episode_reset_sequence(robot: _franka_interface.FrankaInterface, timeout_sec: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout_sec
+    if not _run_joint_reset(robot, deadline):
+        return False
+    return _run_gripper_reset(robot, deadline)
 
 
 def _next_episode_suite_path(base_data_dir: pathlib.Path, suite_name: str) -> str:
@@ -306,6 +386,10 @@ def run_eval_mode(cfg: _config.RobotRuntimeConfig) -> None:
     suite_name = _config.POLICY_EVALUATION_SUITE_NAME
 
     while True:
+        if not _prompt_start_evaluation(base_data_dir, suite_name):
+            _log("Exiting evaluation loop.")
+            return
+
         episode_suite_path = _next_episode_suite_path(base_data_dir, suite_name)
         _log(f"Starting episode with metadata suite: {episode_suite_path}")
         client.begin_episode(episode_suite_path)
@@ -326,7 +410,10 @@ def run_eval_mode(cfg: _config.RobotRuntimeConfig) -> None:
             f"Episode finished: reason={stop_reason}, "
             f"inferences={inference_count}, episode_suite={episode_suite_path}"
         )
-        _wait_for_reset_confirmation()
+        _wait_for_safe_to_reset()
+        if not _run_episode_reset_sequence(robot, timeout_sec=10.0):
+            _log("reset failed)")
+            raise SystemExit(1)
 
 
 def run_test_mode(cfg: _config.RobotRuntimeConfig) -> None:

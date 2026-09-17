@@ -16,12 +16,15 @@ Main user-editable variables:
 - `POLICY_CHECKPOINT_DIR`
 - `POLICY_NORM_STATS_PATH`
 - `POLICY_EVALUATION_SUITE_NAME`
-- `POLICY_METADATA_SAVE_DIR` (custom_openpi `data_dir`, where metadata/latents are saved)
+- `POLICY_METADATA_SAVE_DIR_PREFERRED` (preferred custom_openpi `data_dir`, where metadata/latents are saved)
 - `ROBOT_RUNTIME.max_allowed_inferences_per_episode`
 - `ROBOT_RUNTIME.max_allowed_episode_seconds`
 - `ROBOT_RUNTIME.test_inference_count`
 
 Current defaults are already set to your local paths.
+If `/data3/openpi` is not writable on your machine, the runtime will fall back to
+`/home/ripl/openpi/.runtime_data/openpi`. You can override this explicitly with
+`OPENPI_POLICY_METADATA_DIR=/your/path`.
 
 ## 2) Start robot-side dependencies (3 essential processes)
 

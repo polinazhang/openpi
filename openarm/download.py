@@ -7,7 +7,10 @@ import argparse
 import os
 from pathlib import Path
 
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+try:
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+except ModuleNotFoundError:
+    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 
 def parse_args() -> argparse.Namespace:

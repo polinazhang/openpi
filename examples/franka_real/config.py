@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
+import os
+from pathlib import Path
+import warnings
 
 
 class ModelFamily(str, Enum):
@@ -8,13 +11,51 @@ class ModelFamily(str, Enum):
 
 
 # User-editable paths for Franka inference.
-POLICY_CHECKPOINT_DIR = "/home/ripl/openpi/checkpoints/franka_base_torch/30000"
-POLICY_NORM_STATS_PATH = "/home/ripl/openpi/checkpoints/franka_base_torch/30000/norm_stats.json"
-POLICY_EVALUATION_SUITE_NAME = "franka_eval"
-# custom_openpi.md `data_dir`: root directory where latent/action metadata is saved.
-POLICY_METADATA_SAVE_DIR = "/data3/openpi"
+POLICY_CHECKPOINT_DIR = "/home/ripl/openpi/checkpoints/pi05_franka_on_top_30_torch_29999"
+POLICY_NORM_STATS_PATH = "/home/ripl/openpi/checkpoints/pi05_franka_on_top_30_torch_29999/assets/pi05_franka_on_top_30/norm_stats.json"
+POLICY_EVALUATION_SUITE_NAME = "franka_on_top_30_29999"
+# Preferred root directory where latent/action metadata is saved.
+POLICY_METADATA_SAVE_DIR_PREFERRED = "/data3/openpi"
 # Language instruction used for policy inference.
-POLICY_LANGUAGE_INSTRUCTION = "place the pink block in the bin"
+POLICY_LANGUAGE_INSTRUCTION = "place the pink block on top of the blue block"
+
+## Base task:
+# "place the pink block in the bin"
+# "place the blue block in the bin"
+
+## On top:
+# "place the pink block on top of the blue block"
+
+## Object Two
+# "place the pink block in the bin, then place the blue block in the bin"
+
+
+def _resolve_policy_metadata_dir() -> str:
+    override = os.getenv("OPENPI_POLICY_METADATA_DIR")
+    if override:
+        return override
+
+    preferred = Path(POLICY_METADATA_SAVE_DIR_PREFERRED).expanduser()
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        probe = preferred / ".openpi_write_test"
+        probe.touch(exist_ok=True)
+        probe.unlink()
+        return str(preferred)
+    except OSError:
+        fallback = (_REPO_ROOT / ".runtime_data" / "openpi").resolve()
+        fallback.mkdir(parents=True, exist_ok=True)
+        warnings.warn(
+            f"Metadata dir {preferred} is not writable; falling back to {fallback}. "
+            "Set OPENPI_POLICY_METADATA_DIR to override.",
+            stacklevel=2,
+        )
+        return str(fallback)
+
+
+_THIS_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _THIS_DIR.parents[1]
+POLICY_METADATA_SAVE_DIR = _resolve_policy_metadata_dir()
 
 
 @dataclass(frozen=True)
@@ -48,13 +89,13 @@ class RobotRuntimeConfig:
     end_trajectory_path: str = "/end_trajectory"
     request_timeout_sec: float = 20.0
 
-    action_horizon: int = 10
+    action_horizon: int = 50
     max_hz: float = 20.0
     num_episodes: int = 1
     max_episode_steps: int = 1200
     max_allowed_inferences_per_episode: int = 200
     max_allowed_episode_seconds: float = 120.0
-    test_inference_count: int = 3
+    test_inference_count: int = 40
 
     prompt: str = POLICY_LANGUAGE_INSTRUCTION
 
