@@ -1,7 +1,7 @@
 """Standalone Franka robot communication client.
 
 Run in OpenTeach env:
-    /home/jeremiah/miniforge3/envs/openteach/bin/python /home/ripl/openpi/examples/franka_real/robot_communicator.py
+    bash repo-configs/run_franka.bash robot
 """
 
 from __future__ import annotations
@@ -21,19 +21,29 @@ from typing import Any
 import cv2
 import numpy as np
 import requests
+if __package__:
+    from .repo_paths import use_robot_repositories
+else:
+    from repo_paths import use_robot_repositories
+use_robot_repositories()
+
 from deoxys import config_root as _deoxys_config_root
 from deoxys.utils import YamlConfig as _YamlConfig
 
 
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parents[2]
+_REPO_ROOT = _THIS_DIR.parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-import config as _config
-import franka_interface as _franka_interface
+if __package__:
+    from . import config as _config
+    from . import franka_interface as _franka_interface
+else:
+    import config as _config
+    import franka_interface as _franka_interface
 
 
 def _log(msg: str) -> None:
@@ -187,8 +197,13 @@ def _action_queue_from_response(action_payload: Any, action_horizon: int) -> col
         actions = actions[None, :]
     if actions.ndim != 2:
         raise ValueError(f"Expected action payload with 1D or 2D shape, got {actions.shape}")
-    if actions.shape[1] < 8:
-        raise ValueError(f"Expected action dim >= 8, got {actions.shape}")
+    if actions.shape[0] == 0 or actions.shape[1] not in (8, 32):
+        raise ValueError(f"Expected a nonempty sequence of 8D or padded 32D actions, got {actions.shape}")
+    if not np.isfinite(actions[:, :8]).all():
+        raise ValueError("Predicted chunk contains nonfinite robot commands")
+    norms = np.linalg.norm(actions[:, 3:7].astype(np.float64), axis=1)
+    if np.any(norms <= 1e-8):
+        raise ValueError("Predicted chunk contains a zero-norm quaternion")
 
     horizon = max(1, min(action_horizon, actions.shape[0]))
     queue: collections.deque[np.ndarray] = collections.deque()

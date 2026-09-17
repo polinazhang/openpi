@@ -9,12 +9,13 @@ This directory now uses a split-process design:
 
 ## `examples/franka_real/config.py`
 
-Single place for user configuration.
+Runtime behavior configuration. Repository and checkpoint locations live in
+`repo-configs/config.py`.
 
 Important user-editable variables:
 
-- `POLICY_CHECKPOINT_DIR`
-- `POLICY_NORM_STATS_PATH`
+- `repo-configs/config.py`: `checkpoint_dir` and `openteach_root`
+- Normalization is derived strictly as `checkpoint_dir/assets/franka/norm_stats.json`.
 - `POLICY_EVALUATION_SUITE_NAME`
 - `POLICY_METADATA_SAVE_DIR`
 
@@ -26,7 +27,7 @@ Important user-editable variables:
 Standalone OpenPI inference server (run in uv env).
 
 - Loads policy from explicit checkpoint path (no default checkpoint fallback).
-- Loads norm stats from explicit `norm_stats.json` path.
+- Loads only the selected checkpoint’s `assets/franka/norm_stats.json`.
 - Uses custom_openpi-required args:
   - `evaluation_suite_name`
   - `data_dir` (metadata root)
@@ -68,7 +69,7 @@ Standalone robot communication runtime (run with OpenTeach python executable).
   - calls `/end_trajectory`,
   - prompts for `y` before next episode.
 - `--test` mode:
-  - runs exactly `test_inference_count` inference calls (default 5),
+  - runs exactly `test_inference_count` inference calls (default 40),
   - saves under `test` suite.
 
 ## Legacy files
@@ -83,7 +84,7 @@ These files are from the earlier websocket/openpi-client flow and are not the pr
 
 New 5-process launcher (outside this repo):
 
-- `~/openteach/franka_openpi_eval.bash`
+- `franka_openpi_eval.bash` in the configured OpenTeach checkout
 
 It launches:
 

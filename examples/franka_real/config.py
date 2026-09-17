@@ -4,6 +4,11 @@ import os
 from pathlib import Path
 import warnings
 
+if __package__:
+    from .repo_paths import checkpoint_dir, openpi_root, evaluation_suite_name, task_prompt
+else:
+    from repo_paths import checkpoint_dir, openpi_root, evaluation_suite_name, task_prompt
+
 
 class ModelFamily(str, Enum):
     PI0 = "pi0"
@@ -11,13 +16,16 @@ class ModelFamily(str, Enum):
 
 
 # User-editable paths for Franka inference.
-POLICY_CHECKPOINT_DIR = "/home/ripl/openpi/checkpoints/pi05_franka_on_top_30_torch_29999"
-POLICY_NORM_STATS_PATH = "/home/ripl/openpi/checkpoints/pi05_franka_on_top_30_torch_29999/assets/pi05_franka_on_top_30/norm_stats.json"
-POLICY_EVALUATION_SUITE_NAME = "franka_on_top_30_29999"
+POLICY_CHECKPOINT_DIR = checkpoint_dir
+POLICY_NORM_STATS_PATH = (
+    str(Path(checkpoint_dir) / "assets" / "franka" / "norm_stats.json")
+    if checkpoint_dir is not None else None
+)
+POLICY_EVALUATION_SUITE_NAME = evaluation_suite_name
 # Preferred root directory where latent/action metadata is saved.
 POLICY_METADATA_SAVE_DIR_PREFERRED = "/data3/openpi"
 # Language instruction used for policy inference.
-POLICY_LANGUAGE_INSTRUCTION = "place the pink block on top of the blue block"
+POLICY_LANGUAGE_INSTRUCTION = task_prompt
 
 ## Base task:
 # "place the pink block in the bin"
@@ -54,7 +62,7 @@ def _resolve_policy_metadata_dir() -> str:
 
 
 _THIS_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parents[1]
+_REPO_ROOT = openpi_root
 POLICY_METADATA_SAVE_DIR = _resolve_policy_metadata_dir()
 
 

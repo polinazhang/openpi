@@ -1,0 +1,1 @@
+alias openpi='bash "$HOME/Desktop/openteach/franka_openpi_eval.bash"'

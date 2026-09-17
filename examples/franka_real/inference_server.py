@@ -37,7 +37,7 @@ def _pickle_loads_compat(payload: bytes) -> Any:
 
 
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parents[2]
+_REPO_ROOT = _THIS_DIR.parents[1]
 _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
@@ -45,22 +45,10 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 import config as _runtime_config
-from openpi.policies import policy_config as _policy_config
-from openpi.shared import normalize as _normalize
-from openpi.training import config as _config
+from checkpoint_policy import load_policy
 
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_POLICY = {
-    _runtime_config.ModelFamily.PI0: (
-        "pi0_franka_object",
-    ),
-    _runtime_config.ModelFamily.PI05: (
-        "pi05_franka_object",
-    ),
-}
-
 
 def _json_safe(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -202,34 +190,7 @@ class _InferenceHandler(http.server.BaseHTTPRequestHandler):
 def main() -> None:
     cfg = _runtime_config.POLICY_SERVER
 
-    config_name = _DEFAULT_POLICY[cfg.model_family][0]
-    if not cfg.checkpoint_dir:
-        raise ValueError("PolicyServerConfig.checkpoint_dir must be set. No default checkpoint fallback is used.")
-    if not cfg.norm_stats_path:
-        raise ValueError("PolicyServerConfig.norm_stats_path must be set.")
-    checkpoint_dir = cfg.checkpoint_dir
-    norm_stats_path = pathlib.Path(cfg.norm_stats_path)
-    if not norm_stats_path.exists():
-        raise FileNotFoundError(f"Norm stats file not found at: {norm_stats_path}")
-
-    logger.info(
-        "Loading Franka policy '%s' from %s (suite=%s, data_dir=%s, norm_stats_path=%s)",
-        config_name,
-        checkpoint_dir,
-        cfg.evaluation_suite_name,
-        cfg.data_dir,
-        norm_stats_path,
-    )
-    norm_stats = _normalize.deserialize_json(norm_stats_path.read_text())
-
-    policy = _policy_config.create_trained_policy(
-        _config.get_config(config_name),
-        checkpoint_dir,
-        evaluation_suite_name=cfg.evaluation_suite_name,
-        data_dir=cfg.data_dir,
-        default_prompt=cfg.default_prompt,
-        norm_stats=norm_stats,
-    )
+    policy = load_policy(cfg)
 
     _InferenceHandler.policy = policy
     _InferenceHandler.metadata = policy.metadata

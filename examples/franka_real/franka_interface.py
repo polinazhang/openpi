@@ -1,13 +1,20 @@
 import os
 
+if __package__:
+    from . import config as _config
+    from .repo_paths import use_robot_repositories
+else:
+    import config as _config
+    from repo_paths import use_robot_repositories
+
+use_robot_repositories()
+
 from easydict import EasyDict
 import numpy as np
 from openteach.components.operators.franka import CONFIG_ROOT
 from openteach.components.operators.franka import FrankaArmOperator
 from openteach.utils.network import ZMQCameraSubscriber
 import yaml
-
-import config as _config
 
 
 class FrankaInterface:
@@ -43,6 +50,7 @@ class FrankaInterface:
             arm_resolution_port=None,
             teleoperation_reset_port=None,
             record="openpi_franka",
+            control_mode="absolute_eef_pose_to_delta",
         )
 
     def is_connected(self) -> bool:
@@ -78,10 +86,16 @@ class FrankaInterface:
         }
 
     def send_action(self, action: np.ndarray) -> None:
-        action = np.asarray(action, dtype=np.float32)
-        if action.shape != (8,):
-            raise ValueError(f"Expected action shape (8,), got {action.shape}")
-
-        abs_eef_pose = action[:7].tolist()
-        gripper = float(action[7])
-        self._operator.arm_control(abs_eef_pose, gripper)
+        # Policy output is already unnormalized; padding is not a robot command.
+        action = np.asarray(action, dtype=np.float64)
+        if action.shape not in ((8,), (32,)):
+            raise ValueError(f"Expected action shape (8,) or padded (32,), got {action.shape}")
+        action = action[:8].copy()
+        if not np.isfinite(action).all():
+            raise ValueError("Action contains nonfinite pose or gripper values")
+        quaternion_norm = np.linalg.norm(action[3:7])
+        if not np.isfinite(quaternion_norm) or quaternion_norm <= 1e-8:
+            raise ValueError("Predicted quaternion has zero or invalid norm")
+        action[3:7] /= quaternion_norm
+        gripper = -1.0 if action[7] < 0.0 else 1.0
+        self._operator.arm_control(target_pose=action[:7], gripper_cmd=gripper)
